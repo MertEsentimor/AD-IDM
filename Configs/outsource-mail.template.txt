@@ -1,0 +1,37 @@
+Merhabalar,
+
+<DOMAIN> kullanıcınız hazır;
+Ekteki doküman ve alt taraftaki koşullara göre kayıt olup şifre değişimi yapabilir.
+
+Kullanıcı Adı: {{SamAccountName}}
+Şifre: SMS ile gönderilmiş geçici şifreniz
+Domain: <DOMAIN>
+
+1. Adım: Adself service kayıt olmak.
+Kayıt adımında 2 adet soru ve telefon numara teyit edilmesi.
+2. Adım: Adself service kaydı sonrası şifre resetleme.
+En az 12 karakterli
+-en az 1 adet büyük harf
+-en az 1 adet küçük harf
+-en az 1 adet rakam
+-en az 1 adet özel karakter (.,?! Gibi)
+
+Not: Dökümanda adself.ornek.local olarak geçen sunucu kısmını adself.contoso.com olarak giriniz.
+
+Şifre değiştirme işlemini başarılı şekilde tamamladıktan sonra SSLVPN için aşağıdaki adımlar izlenmelidir.
+
+Öncelikle aşağıdaki linkten işletim sisteminize uygun olan Forticlient VPN indirilir ve kurulur.
+
+https://www.fortinet.com/support/product-downloads#vpn
+
+Forticlient uygulamasında yeni bir bağlantı oluşturarak erişimi sağlamak için aşağıdaki bilgiler eksiksiz girilir.
+
+Connection Name: CONTOSO-VPN
+Remote Gateway: vpn.contoso.com
+Authentication: Save Login(İşaretli)
+Username: {{SamAccountName}}
+
+Yukarıdaki bilgiler doldurulduktan sonra "Save" edilerek çıkılır. Sonrasında bağlantı ekranında hesabınızın şifresi girilerek “Connect”e tıklanır.
+Daha sonra mail adresinize gelecek olan “Token” bilgisi, ekranda çıkan “Token” alanına girilir ve bağlantı gerçekleştirilir.
+
+Saygılarımla,

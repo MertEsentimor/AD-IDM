@@ -1,0 +1,15 @@
+# Ortama özel ayarlar ve sırlar (şablonlar depoda kalır)
+Configs/*
+!Configs/*.template.*
+Secrets/
+Ekler/
+
+# Çalışma çıktıları
+Logs/
+dist/
+*.bak
+*.log
+
+# İşletim sistemi
+.DS_Store
+Thumbs.db

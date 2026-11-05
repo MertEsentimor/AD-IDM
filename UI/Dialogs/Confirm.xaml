@@ -1,0 +1,50 @@
+﻿<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Onay" Width="600" SizeToContent="Height" MaxHeight="760"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" ShowInTaskbar="False"
+        Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource TextBrush}" FontFamily="Segoe UI" FontSize="13"
+        UseLayoutRounding="True" SnapsToDevicePixels="True" TextOptions.TextFormattingMode="Display">
+    <DockPanel>
+        <Border Style="{DynamicResource DialogFooter}" DockPanel.Dock="Bottom">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="btnCfNo" Content="Vazgeç" IsCancel="True" MinWidth="110"/>
+                <Button x:Name="btnCfYes" Margin="8,0,0,0" Content="Uygula" Style="{DynamicResource PrimaryButton}" IsDefault="True" MinWidth="140"/>
+            </StackPanel>
+        </Border>
+        <StackPanel>
+            <Border x:Name="bdCfHeader" Background="Transparent" Padding="24,22,24,6">
+                <TextBlock x:Name="txtCfTitle" Text="Onay" Style="{DynamicResource TitleText}"/>
+            </Border>
+            <StackPanel Margin="24,10,24,20">
+                <ScrollViewer MaxHeight="400" VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <StackPanel>
+                        <TextBlock x:Name="txtCfMessage" TextWrapping="Wrap" LineHeight="20"/>
+                        <ItemsControl x:Name="icCfItems" Visibility="Collapsed" Margin="0,12,0,0" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="3" Padding="10,6" Margin="0,0,0,6">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="12"/>
+                                            <TextBlock Text="{Binding Detail}" FontSize="12" Foreground="{DynamicResource TextMutedBrush}" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+                <Border Style="{DynamicResource SubtleCard}" Margin="0,18,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Seçenekler" Style="{DynamicResource InfoLabel}" Margin="0,0,0,10"/>
+                        <CheckBox x:Name="chkCfWhatIf" Margin="0,0,0,10">
+                            <TextBlock TextWrapping="Wrap" Text="Simülasyon (-WhatIf): hiçbir değişiklik yapma, yapılacak işlemleri yalnızca günlüğe yaz"/>
+                        </CheckBox>
+                        <CheckBox x:Name="chkCfReplicate">
+                            <TextBlock TextWrapping="Wrap" Text="İşlemden sonra AD replikasyonunu başlat (repadmin /syncall /APed)"/>
+                        </CheckBox>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </StackPanel>
+    </DockPanel>
+</Window>

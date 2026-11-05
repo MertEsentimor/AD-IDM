@@ -1,0 +1,27 @@
+﻿{
+  "_aciklama": "Gece izin gorevinin her gece 00:00 sonrasinda gonderdigi rapor e-postasi. Denemek icin: .\\Start-ADIDM.ps1 -TestLeaveMail",
+  "Enabled": false,
+  "CompanyName": "",
+  "SmtpServer": "",
+  "Port": null,
+  "UseSsl": false,
+  "Authentication": "",
+  "CredentialFile": "",
+  "From": "",
+  "FromName": "",
+  "To": [],
+  "Cc": [],
+  "Subject": "",
+  "SendWhen": "",
+  "_kimlik": "Authentication: Anonymous (kimliksiz relay), Windows (gorevin hesabiyla, gMSA icin bunu secin), Credential (CredentialFile icindeki sifreli kimlik; olusturmak icin gorevin hesabiyla .\\Start-ADIDM.ps1 -SetMailCredential).",
+  "_gonderim": "SendWhen: Always (her gece, islem olmasa da), Changes (yalnizca hesap kapanan/acilan gecelerde), Failures (yalnizca hata veya sorunlu kayit varsa).",
+  "OutsourceMail": {
+    "_aciklama": "Kullanici Ekle ekraninda 'Outsource kullanici' secilince gonderilen bilgilendirme e-postasi. SMTP ayarlari yukaridakiyle ayni. Metin BodyFile dosyasindan okunur (.txt duz metin veya .html). Kullanilabilen alanlar: {{SamAccountName}} {{UserPrincipalName}} {{DisplayName}} {{GivenName}} {{Surname}} {{EmailAddress}} {{Domain}}",
+    "Enabled": false,
+    "FromName": "",
+    "Subject": "",
+    "BodyFile": "",
+    "Attachments": [],
+    "Cc": []
+  }
+}
