@@ -38,7 +38,7 @@ $script:State = @{
     PreviousSelection = $null; SuppressSelection = $false; LastUpdateSimulated = $false; ActionContext = @{}; PasswordDialog = $null
     Options = @{ WhatIf = $false; Replicate = $true }; ConfirmDialog = $null; OuList = @(); OuPicker = $null; OuSearch = @{ Dn = @(); Subtree = $true }; OuSearchView = $null
     Deferred = New-Object -TypeName 'System.Collections.Generic.Queue[scriptblock]'; ReplicationReload = $null; GroupList = New-Object -TypeName 'System.Collections.Generic.List[object]'
-    SmtpList = New-Object -TypeName 'System.Collections.Generic.List[string]'; SelectTabAfterLoad = $null
+    SmtpList = New-Object -TypeName 'System.Collections.Generic.List[string]'; SelectTabAfterLoad = $null; EnableAfterLoad = $null; PendingOu = $null
     OriginalCas = $null; OriginalSmtp = @(); OriginalPolicy = $null; CurrentMove = $null; MonitoredMoves = @{}; MailboxDatabases = @(); DbPicker = $null; LastExchangeUser = $null; NewUserDialog = $null; NewUserDraft = $null; NewUserDatabases = @()
     PstExports = @{}; PstScanned = $false; PstAttempts = @{}; PstActionAlias = $null; DisabledList = @(); DisabledOu = ''; DisabledReplicate = $false
     LeaveEdit = New-Object -TypeName 'System.Collections.Generic.List[object]'; LeaveNowCandidate = ''; LeaveEditTarget = $null; LeaveList = @(); LeaveTask = $null; LeaveApplyExecute = $false; BulkLeave = $null; Report = $null; Settings = $null; ActiveNav = 'navUsers'; ReturningToSettings = $false
@@ -251,6 +251,8 @@ function Register-ShellEvent {
     $ui.btnDuRefresh.Add_Click({ Invoke-UiAction { Start-DisabledUserLoad } })
     $ui.btnDuDelete.Add_Click({ Invoke-UiAction { Remove-SelectedDisabledUser } })
     $ui.btnDuOpen.Add_Click({ Invoke-UiAction { Open-SelectedDisabledUser } })
+    $ui.btnDuEnable.Add_Click({ Invoke-UiAction { Enable-SelectedDisabledUser } })
+    $ui.btnMoveOu.Add_Click({ Invoke-UiAction { Select-PendingOu } })
     $ui.lstDu.Add_MouseDoubleClick({ Invoke-UiAction { Open-SelectedDisabledUser } })
     $ui.dpLeaveStart.Add_SelectedDateChanged({
             Invoke-UiAction {

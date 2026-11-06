@@ -18,6 +18,7 @@
             $script:Ui[$script:AccountFlagMap[$key].Check].IsChecked = [bool]$ad.$key
         }
         Reset-DisableOption
+        $script:State.PendingOu = $null
         $disabledOu = if ($ad.DisabledUsersOu) { $ad.DisabledUsersOu } else { 'DisabledUsers OU' }
         $script:Ui.txtAccountLocation.Text = if ($ad.Enabled) { "Konum: $($ad.ParentOu)`nDevre dışı bırakılırsa '$disabledOu' OU'suna taşınır; yeniden etkinleştirilince buraya döner." }
         elseif ($ad.PreviousOu) { "Hesap devre dışı. Şu anki konum: $($ad.ParentOu)`nEtkinleştirilirse eski OU'suna döner: $($ad.PreviousOu)" }
@@ -247,6 +248,8 @@ function Get-PendingChange {
     $flags = @{}
     $addressChanged = $false
     $primaryChanged = $false
+    $restoredGroupFile = $null
+    $moveToOu = $null
     $groupAdd = New-Object -TypeName 'System.Collections.Generic.List[string]'
     $groupRemove = New-Object -TypeName 'System.Collections.Generic.List[string]'
     $leaveChanged = $false
@@ -285,6 +288,12 @@ function Get-PendingChange {
                 $audit.Add(@{ Step = 'AccountFlags'; Action = $(if ($key -eq 'Enabled') { $(if ($current) { 'account.enable' } else { 'account.disable' }) } else { 'account.flag.change' }); Category = 'account'; Field = $key; Operation = 'set'; Old = [bool]$script:State.OriginalFlags[$key]; New = $current })
             }
         }
+        $parentOu = [string]$script:State.CurrentData.Ad.ParentOu
+        if ($script:State.PendingOu -and -not [string]::Equals($script:State.PendingOu, $parentOu, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $moveToOu = [string]$script:State.PendingOu
+            $summary.Add("Hesap  |  OU: '$parentOu' -> '$moveToOu'")
+            $audit.Add(@{ Step = 'Move'; Action = 'user.move'; Category = 'account'; Field = 'distinguishedName'; Label = 'OU'; Operation = 'set'; Old = $parentOu; New = $moveToOu })
+        }
         if ($flags.ContainsKey('Enabled') -and -not $flags.Enabled) {
             $disableCleanup = Get-DisableCleanup
             if ($disableCleanup.Count -gt 0) { Add-DisableCleanupChange -Cleanup $disableCleanup -Summary $summary -Audit $audit }
@@ -303,6 +312,25 @@ function Get-PendingChange {
             elseif ($entry.State -eq 'Removed') {
                 $groupRemove.Add([string]$entry.Group.DistinguishedName); $summary.Add("Grup  |  Kaldırılacak: $($entry.Group.Name)")
                 $audit.Add(@{ Step = 'Groups'; Action = 'user.group.remove'; Category = 'group'; Field = 'memberOf'; Label = [string]$entry.Group.Name; Operation = 'remove'; Old = [string]$entry.Group.DistinguishedName; New = '' })
+            }
+        }
+        if ($flags.ContainsKey('Enabled') -and $flags.Enabled) {
+            $removedGroups = Get-RemovedGroupList -SamAccountName ([string]$script:State.CurrentData.Ad.SamAccountName)
+            if ($removedGroups) {
+                $knownGroups = New-Object -TypeName 'System.Collections.Generic.HashSet[string]' -ArgumentList ([System.StringComparer]::OrdinalIgnoreCase)
+                foreach ($entry in $script:State.GroupList) { [void]$knownGroups.Add([string]$entry.Group.DistinguishedName) }
+                $restoredNames = New-Object -TypeName 'System.Collections.Generic.List[string]'
+                foreach ($dn in $removedGroups.GroupDn) {
+                    if (-not $knownGroups.Add($dn)) { continue }
+                    $groupName = ($dn -replace '^CN=((?:\\,|[^,])+),.*$', '$1') -replace '\\,', ','
+                    $groupAdd.Add($dn)
+                    $restoredNames.Add($groupName)
+                    $audit.Add(@{ Step = 'Groups'; Action = 'user.group.add'; Category = 'group'; Field = 'memberOf'; Label = $groupName; Operation = 'add'; Old = ''; New = $dn })
+                }
+                if ($restoredNames.Count -gt 0) {
+                    $restoredGroupFile = $removedGroups.Path
+                    $summary.Add("Grup  |  Geri eklenecek ($($restoredNames.Count) grup, $($removedGroups.SavedAt.ToString('dd.MM.yyyy')) listesinden): $($restoredNames -join ', ')")
+                }
             }
         }
         $originalKey = ConvertTo-AddressKey -Addresses $script:State.OriginalSmtp
@@ -370,10 +398,33 @@ function Get-PendingChange {
         LeaveChanged   = $leaveChanged
         LeaveChange    = $leaveChange
         DisableCleanup = $disableCleanup
+        RestoredGroupFile = $restoredGroupFile
+        MoveToOu       = $moveToOu
         AuditItems     = $audit.ToArray()
         Summary        = $summary.ToArray()
-        Count          = $changedFields.Count + $cas.Count + $policies.Count + $flags.Count + $groupAdd.Count + $groupRemove.Count + $(if ($addressChanged) { 1 } else { 0 }) + $(if ($leaveChanged) { 1 } else { 0 })
+        Count          = $changedFields.Count + $cas.Count + $policies.Count + $flags.Count + $groupAdd.Count + $groupRemove.Count + $(if ($addressChanged) { 1 } else { 0 }) + $(if ($leaveChanged) { 1 } else { 0 }) + $(if ($moveToOu) { 1 } else { 0 })
     }
+}
+function Select-PendingOu {
+    [CmdletBinding()]
+    param()
+    $data = $script:State.CurrentData
+    if (-not $data) { return }
+    if (@($script:State.OuList).Count -eq 0) {
+        [void](Invoke-BackgroundTask -Name 'OU listesi okunuyor' -Command 'Get-OrganizationalUnitList' -OnSuccess {
+                param($Result)
+                $script:State.OuList = @($Result | Where-Object { $_ })
+                if ($script:State.OuList.Count -gt 0) { Invoke-Deferred { Select-PendingOu } }
+                else { Write-UiLog -Message 'Dizinde OU bulunamadı.' -Level Warning }
+            })
+        return
+    }
+    $current = if ($script:State.PendingOu) { [string]$script:State.PendingOu } else { [string]$data.Ad.ParentOu }
+    $ou = [string](@(Show-OuPicker -Owner $script:Window -Selected $current -Title "'$($data.Ad.SamAccountName)' hangi OU'ya taşınsın?" -AcceptText 'OU''yu Seç') | Select-Object -First 1)
+    if (-not $ou) { return }
+    # Mevcut OU seçilirse bekleyen taşıma kalkar.
+    $script:State.PendingOu = if ([string]::Equals($ou, [string]$data.Ad.ParentOu, [System.StringComparison]::OrdinalIgnoreCase)) { $null } else { $ou }
+    Update-ChangeIndicator
 }
 function Get-PendingChipModel {
     [CmdletBinding()]
@@ -448,6 +499,13 @@ function Test-PendingChange {
         if ($self) { $errors.Add('Kendi hesabınızı devre dışı bırakamazsınız.') }
         else { $warnings.Add('Hesap devre dışı bırakılınca kullanıcı oturum açamaz ve DisabledUsers OU''suna taşınır; OU''ya bağlı GPO ve izinler değişir.') }
     }
+    if ($Changes.MoveToOu) {
+        $ad = $script:State.CurrentData.Ad
+        if ($Changes.AccountFlags.ContainsKey('Enabled') -and -not $Changes.AccountFlags.Enabled) { $errors.Add('Devre dışı bırakılan hesap DisabledUsers OU''suna taşınır; OU değişikliğini ayrı kaydedin.') }
+        elseif ($Changes.AccountFlags.ContainsKey('Enabled') -and $Changes.AccountFlags.Enabled -and $ad.PreviousOu) { $warnings.Add("Hesap önce eski OU'suna ($($ad.PreviousOu)) döner, ardından seçilen OU'ya taşınır.") }
+        elseif (-not $ad.Enabled -and $ad.PreviousOu) { $warnings.Add("Hesap devre dışı: etkinleştirilince kayıtlı eski OU'suna ($($ad.PreviousOu)) döner.") }
+        $warnings.Add('OU değişince hesaba farklı GPO ve izinler uygulanabilir.')
+    }
     if ($Changes.AccountFlags.ContainsKey('PasswordNeverExpires') -and $Changes.AccountFlags.PasswordNeverExpires -and $script:State.CurrentData.Password.State -eq 'MustChange') {
         $warnings.Add('Kullanıcıya "bir sonraki oturumda parola değiştirmeli" atanmış; parola süresiz yapılınca bu zorunluluk uygulanmaz.')
     }
@@ -497,6 +555,7 @@ function Start-UserUpdate {
     if ($changes.AccountFlags.Count -gt 0) { $request.AccountFlags = $changes.AccountFlags }
     if ($changes.GroupAdd.Count -gt 0) { $request.GroupAdd = [string[]]$changes.GroupAdd }
     if ($changes.GroupRemove.Count -gt 0) { $request.GroupRemove = [string[]]$changes.GroupRemove }
+    if ($changes.MoveToOu) { $request.MoveToOu = [string]$changes.MoveToOu }
     if ($changes.LeaveChanged) {
         $request.Leave = @{ Value = [string]$changes.LeaveChange.Value; Account = [string]$changes.LeaveChange.Account; ClearLegacy = [bool]$changes.LeaveChange.ClearLegacy }
     }
@@ -507,6 +566,7 @@ function Start-UserUpdate {
     if ($data.Exchange.Identity) { $request.ExchangeIdentity = [string]$data.Exchange.Identity }
     if ($simulate) { $request.WhatIf = $true }
     $script:State.LastUpdateSimulated = $simulate
+    $script:State.RestoredGroupFile = if ($simulate) { $null } else { $changes.RestoredGroupFile }
     $taskName = if ($simulate) { 'Değişiklikler simüle ediliyor' } else { 'Değişiklikler uygulanıyor' }
     [void](Invoke-BackgroundTask -Name $taskName -Command 'Invoke-UserUpdate' -Arguments $request -AuditChanges $changes.AuditItems -OnSuccess {
             param($Result)
@@ -526,6 +586,8 @@ function Complete-UserUpdate {
         return
     }
     $cleanup = $items | Where-Object { $_.Step -eq 'Grup temizliği' -and $_.Data -and $_.Data.RemovedDn.Count -gt 0 } | Select-Object -First 1
+    if ($script:State.RestoredGroupFile -and ($items | Where-Object { $_.Step -eq 'Grup üyelikleri' -and $_.Success })) { Complete-RemovedGroupList -Path $script:State.RestoredGroupFile }
+    $script:State.RestoredGroupFile = $null
     if ($cleanup) { Save-RemovedGroupList -SamAccountName ([string]$script:State.CurrentData.Ad.SamAccountName) -GroupDn $cleanup.Data.RemovedDn }
     if ($items | Where-Object { $_.Step -eq 'PST dışa aktarma' -and $_.Success }) {
         $script:State.PstScanned = $false
@@ -601,6 +663,9 @@ function Update-ChangeIndicator {
     $groupChanged = ($changes.GroupAdd.Count + $changes.GroupRemove.Count) -gt 0
     $script:Ui.txtGroupChanged.Visibility = if ($groupChanged) { 'Visible' } else { 'Collapsed' }
     if ($groupChanged) { [void]$changedTabs.Add('tabGroups') }
+    $script:Ui.txtMoveOuPending.Text = if ($changes.MoveToOu) { "Taşınacak: $($changes.MoveToOu)" } else { '' }
+    $script:Ui.txtMoveOuPending.Visibility = if ($changes.MoveToOu) { 'Visible' } else { 'Collapsed' }
+    if ($changes.MoveToOu) { [void]$changedTabs.Add('tabAccount') }
     $leavePending = [bool]$changes.LeaveChanged
     $script:Ui.txtLeaveChanged.Visibility = if ($leavePending) { 'Visible' } else { 'Collapsed' }
     if ($leavePending) { [void]$changedTabs.Add('tabLeave') }
@@ -639,6 +704,7 @@ function Update-ActionState {
     foreach ($name in 'btnGroupSearch', 'btnGroupAdd', 'btnGroupRemove') { $script:Ui[$name].IsEnabled = $idle }
     foreach ($key in $script:AccountFlagMap.Keys) { $script:Ui[$script:AccountFlagMap[$key].Check].IsEnabled = $loaded }
     $script:Ui.btnResetPassword.IsEnabled = $idle
+    $script:Ui.btnMoveOu.IsEnabled = $idle
     $script:Ui.btnUnlock.IsEnabled = $idle -and [bool]$data.Ad.LockedOut
     $script:Ui.btnPhotoChange.IsEnabled = $idle
     $script:Ui.btnPhotoRemove.IsEnabled = $idle -and [bool]$data.Photo.Bytes

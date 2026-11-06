@@ -459,6 +459,23 @@ function global:Set-UserAccountFlag {
         Write-WorkerLog -Message "Kullanıcı eski OU'suna geri taşındı: $previous" -Level Success
     }
 }
+function global:Move-UserToOu {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
+    param(
+        [Parameter(Mandatory = $true)][string]$Identity,
+        [Parameter(Mandatory = $true)][string]$TargetOu
+    )
+    if ($WhatIfPreference) { Write-WorkerLog -Message "[WhatIf] Move-ADObject -Identity $Identity -TargetPath '$TargetOu'" -Level Warning; return }
+    if (-not $PSCmdlet.ShouldProcess($Identity, "OU'ya taşı: $TargetOu")) { return }
+    $server = Get-PdcEmulator
+    $null = Get-ADObject -Identity $TargetOu -Server $server -ErrorAction Stop
+    $user = Get-ADUser -Identity $Identity -Server $server -ErrorAction Stop
+    $parent = Get-ParentDn -DistinguishedName ([string]$user.DistinguishedName)
+    if ([string]::Equals($parent, $TargetOu, [System.StringComparison]::OrdinalIgnoreCase)) { Write-WorkerLog -Message "Kullanıcı zaten $TargetOu içinde; taşıma gerekmedi." -Level Info; return }
+    try { Move-ADObject -Identity $user.ObjectGUID -TargetPath $TargetOu -Server $server -ErrorAction Stop }
+    catch { throw "OU'ya taşınamadı ($TargetOu): $($_.Exception.Message) (Nesne 'yanlışlıkla silinmeye karşı koru' ile korunuyor veya hedef OU'da izin yok olabilir.)" }
+    Write-WorkerLog -Message "Kullanıcı taşındı: $parent -> $TargetOu" -Level Success
+}
 function global:Invoke-AdReplication {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Low')]
     param()
@@ -497,13 +514,15 @@ function global:Invoke-UserUpdate {
         [Parameter()][AllowEmptyCollection()][string[]]$GroupAdd = @(),
         [Parameter()][AllowEmptyCollection()][string[]]$GroupRemove = @(),
         [Parameter()][hashtable]$Leave = @{},
-        [Parameter()][hashtable]$DisableCleanup = @{}
+        [Parameter()][hashtable]$DisableCleanup = @{},
+        [Parameter()][string]$MoveToOu
     )
     if ($DisableCleanup.Count -gt 0 -and -not ($AccountFlags.ContainsKey('Enabled') -and -not [bool]$AccountFlags.Enabled)) { $DisableCleanup = @{} }
     $steps = New-Object -TypeName 'System.Collections.Generic.List[string]'
     if ($AdReplace.Count -gt 0 -or $AdClear.Count -gt 0) { $steps.Add('AD') }
     if ($GroupAdd.Count -gt 0 -or $GroupRemove.Count -gt 0) { $steps.Add('Groups') }
     if ($AccountFlags.Count -gt 0) { $steps.Add('AccountFlags') }
+    if ($MoveToOu) { $steps.Add('Move') }
     if ($DisableCleanup.RemoveGroups) { $steps.Add('GroupCleanup') }
     if ($DisableCleanup.Pst) { $steps.Add('PstExport') }
     if ($Leave.Count -gt 0) { $steps.Add('Leave') }
@@ -540,6 +559,12 @@ function global:Invoke-UserUpdate {
                     $result.Step = 'Hesap seçenekleri'
                     Set-WorkerProgress -Percent $percent -Status "${prefix}Hesap seçenekleri güncelleniyor..."
                     Set-UserAccountFlag -Identity $ObjectGuid -Flags $AccountFlags -Confirm:$false
+                }
+                'Move' {
+                    $result.Step = 'OU taşıma'
+                    if ($disableFailed) { throw 'Hesap etkinleştirilemediği için OU taşınmadı.' }
+                    Set-WorkerProgress -Percent $percent -Status "${prefix}Hesap OU'ya taşınıyor..."
+                    Move-UserToOu -Identity $ObjectGuid -TargetOu $MoveToOu -Confirm:$false
                 }
                 'GroupCleanup' {
                     $result.Step = 'Grup temizliği'

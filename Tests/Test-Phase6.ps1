@@ -96,6 +96,17 @@ $script:Calls.Clear()
 [void](Invoke-UserUpdate -ObjectGuid 'g' -DisableCleanup $offboard.DisableCleanup -ExchangeIdentity 'ayse' -Confirm:$false)
 Assert-True ($script:Calls.Count -eq 0) 'Hesap kapatılmıyorsa temizlik seçenekleri yok sayılır'
 
+# ---- Etkinleştirme + OU taşıma
+function global:Move-UserToOu { [CmdletBinding()] param($Identity, $TargetOu, $Confirm) [void]$script:Calls.Add("Move:$TargetOu") }
+$script:Calls.Clear()
+$moved = @(Invoke-UserUpdate -ObjectGuid 'g' -AccountFlags @{ Enabled = $true } -MoveToOu 'OU=Yeni,DC=test' -Confirm:$false)
+Assert-True (($script:Calls -join ',') -eq 'AccountFlags,Move:OU=Yeni,DC=test' -and @($moved | Where-Object { -not $_.Success }).Count -eq 0) "Sıra: hesap açılır, sonra OU taşınır ($($script:Calls -join ','))"
+$script:Calls.Clear()
+$script:FailFlag = $true
+$moveFailed = @(Invoke-UserUpdate -ObjectGuid 'g' -AccountFlags @{ Enabled = $true } -MoveToOu 'OU=Yeni,DC=test' -Confirm:$false)
+$script:FailFlag = $false
+Assert-True (($script:Calls -join ',') -eq 'AccountFlags' -and @($moveFailed | Where-Object { $_.Step -eq 'OU taşıma' -and -not $_.Success }).Count -eq 1) 'Hesap açılamazsa OU taşınmaz'
+
 # ---- Geri alma kaydı (günlük rotasyonu dışında)
 Save-RemovedGroupList -SamAccountName 'ayse' -GroupDn @('CN=G1,DC=test', 'CN=G2,DC=test')
 $saved = @(Get-ChildItem -LiteralPath (Join-Path -Path $temporaryFolder -ChildPath 'Logs/RemovedGroups') -ErrorAction SilentlyContinue)

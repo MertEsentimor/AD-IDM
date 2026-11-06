@@ -122,6 +122,36 @@ function Save-RemovedGroupList {
     }
     catch { Write-UiLog -Message "Çıkarılan grup listesi kaydedilemedi: $($_.Exception.Message)" -Level Warning }
 }
+function Get-RemovedGroupList {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory = $true)][string]$SamAccountName)
+    $folder = Join-Path -Path $script:AppRoot -ChildPath 'Logs\RemovedGroups'
+    if (-not (Test-Path -LiteralPath $folder)) { return $null }
+    # Geri eklenmiş listeler .restored.txt adını alır ve bu kalıba uymaz.
+    $pattern = '^{0}_\d{{8}}_\d{{6}}\.txt$' -f [regex]::Escape($SamAccountName)
+    $file = Get-ChildItem -LiteralPath $folder -Filter "$($SamAccountName)_*.txt" -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match $pattern } | Sort-Object -Property Name -Descending | Select-Object -First 1
+    if (-not $file) { return $null }
+    try { $groupDn = @(Get-Content -LiteralPath $file.FullName -Encoding UTF8 -ErrorAction Stop | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notlike '#*' }) }
+    catch { Write-UiLog -Message "Çıkarılan grup listesi okunamadı ($($file.FullName)): $($_.Exception.Message)" -Level Warning; return $null }
+    if ($groupDn.Count -eq 0) { return $null }
+    return [pscustomobject]@{ Path = $file.FullName; SavedAt = $file.LastWriteTime; GroupDn = $groupDn }
+}
+function Complete-RemovedGroupList {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Path)
+    # Eski devre dışı bırakmalardan kalan listeler de kapanır; yoksa sonraki etkinleştirmede bayat gruplar önerilir.
+    $samPrefix = [System.IO.Path]::GetFileName($Path) -replace '_\d{8}_\d{6}\.txt$', ''
+    $pattern = '^{0}_\d{{8}}_\d{{6}}\.txt$' -f [regex]::Escape($samPrefix)
+    foreach ($file in @(Get-ChildItem -LiteralPath ([System.IO.Path]::GetDirectoryName($Path)) -Filter "$($samPrefix)_*.txt" -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $pattern })) {
+        try {
+            Rename-Item -LiteralPath $file.FullName -NewName ($file.BaseName + '.restored.txt') -ErrorAction Stop
+            Write-UiLog -Message "Grup listesi geri eklendi olarak işaretlendi: $($file.FullName)" -Level Info
+        }
+        catch { Write-UiLog -Message "Grup listesi işaretlenemedi; sonraki etkinleştirmede yeniden önerilir: $($_.Exception.Message)" -Level Warning }
+    }
+}
 function Start-ManualPstExport {
     [CmdletBinding()]
     param()
@@ -383,6 +413,32 @@ function Open-SelectedDisabledUser {
     $script:Ui.navUsers.IsChecked = $true
     $script:Ui.txtSearch.Text = [string]$item.SamAccountName
     Start-UserLoad -ObjectGuid ([string]$item.ObjectGuid) -Force
+}
+function Enable-SelectedDisabledUser {
+    [CmdletBinding()]
+    param()
+    $c = $script:Ui
+    $selected = @($c.lstDu.SelectedItems)
+    if ($selected.Count -ne 1) { $c.txtDuSummary.Text = 'Etkinleştirmek için listeden tek bir kullanıcı seçin.'; return }
+    if ($script:TaskEngine.CurrentJob -and -not $script:TaskEngine.CurrentJob.Silent) { $c.txtDuSummary.Text = 'Başka bir işlem sürüyor; biraz sonra tekrar deneyin.'; return }
+    if (-not (Confirm-DiscardChange)) { return }
+    $item = $selected[0]
+    $script:State.EnableAfterLoad = [string]$item.ObjectGuid
+    $c.navUsers.IsChecked = $true
+    $c.txtSearch.Text = [string]$item.SamAccountName
+    Start-UserLoad -ObjectGuid ([string]$item.ObjectGuid) -Force
+}
+function Start-PendingEnable {
+    # Profildeki "Etkin" değişikliğiyle aynı onay akışı: eski OU, grup geri ekleme ve uyarılar dahil.
+    [CmdletBinding()]
+    param()
+    $data = $script:State.CurrentData
+    if (-not $data) { return }
+    if ($data.Ad.Enabled) { Write-UiLog -Message "'$($data.Ad.SamAccountName)' hesabı zaten etkin." -Level Info; return }
+    $script:Ui.chkAccountEnabled.IsChecked = $true
+    Select-MainTab -TabName 'tabAccount'
+    Update-ChangeIndicator
+    Start-UserUpdate
 }
 function Remove-SelectedPstMailbox {
     [CmdletBinding()]

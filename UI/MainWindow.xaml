@@ -390,6 +390,10 @@
                                     <TextBox x:Name="txtCanonicalName" AutomationProperties.Name="Canonical Name"/>
                                     <TextBlock Text="Distinguished Name" Style="{DynamicResource FieldLabel}"/>
                                     <TextBox x:Name="txtDn" AutomationProperties.Name="Distinguished Name" TextWrapping="Wrap"/>
+                                    <DockPanel Margin="0,12,0,0">
+                                        <Button x:Name="btnMoveOu" DockPanel.Dock="Left" Tag="&#xE8DE;" Content="OU Değiştir..." ToolTip="Hesabı başka bir OU'ya taşı; Kaydet ile uygulanır"/>
+                                        <TextBlock x:Name="txtMoveOuPending" Visibility="Collapsed" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}"/>
+                                    </DockPanel>
 </StackPanel>
 </Border>
                                             <Border Style="{DynamicResource Section}">
@@ -1307,6 +1311,7 @@
             <DockPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                 <Button x:Name="btnDuOpen" Tag="&#xE8A7;" Content="Kullanıcıyı Aç"/>
+                <Button x:Name="btnDuEnable" Margin="8,0,0,0" Tag="&#xE8FB;" Content="Hesabı Etkinleştir..." ToolTip="Kullanıcıyı açar ve profildeki etkinleştirme onayını gösterir (eski OU ve gruplar dahil)"/>
                 <Button x:Name="btnDuDelete" Margin="8,0,0,0" Tag="&#xE74D;" Content="Seçilenleri Sil..." Style="{DynamicResource DangerButton}"/>
             </StackPanel>
                 <TextBlock x:Name="txtDuSummary" VerticalAlignment="Center" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,12,0"/>

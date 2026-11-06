@@ -299,5 +299,11 @@ function Start-UserLoad {
             Show-UserProfile -Data $Result
             if ($script:State.SelectTabAfterLoad) { Select-MainTab -TabName $script:State.SelectTabAfterLoad; $script:State.SelectTabAfterLoad = $null }
             Write-UiLog -Message "Kullanıcı yüklendi: $($Result.Ad.DisplayName) ($($Result.Ad.SamAccountName))" -Level Success
+            $enableGuid = $script:State.EnableAfterLoad
+            $script:State.EnableAfterLoad = $null
+            if ($enableGuid -and $enableGuid -eq [string]$Result.Ad.ObjectGuid) { Invoke-Deferred { Start-PendingEnable } }
+        } -OnFailure {
+            param($Message)
+            $script:State.EnableAfterLoad = $null
         })
 }
