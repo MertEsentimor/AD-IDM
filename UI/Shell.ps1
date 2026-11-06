@@ -426,6 +426,28 @@ function Register-ShellEvent {
         })
 }
 
+function Show-SplashStep {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Message,
+        [Parameter(Mandatory = $true)][ValidateRange(0, 100)][int]$Percent
+    )
+    if (-not $script:Splash) { return }
+    try {
+        $script:Splash.Controls.txtSplashStep.Text = $Message
+        $script:Splash.Controls.prgSplash.Value = $Percent
+        # Açılış UI iş parçacığını bloklar; çizimin işlenmesi için kuyruk boşaltılır.
+        $script:Splash.Window.Dispatcher.Invoke([action] {}, [System.Windows.Threading.DispatcherPriority]::Background)
+    }
+    catch { Write-Verbose "Açılış ekranı güncellenemedi: $($_.Exception.Message)" }
+}
+function Close-Splash {
+    [CmdletBinding()]
+    param()
+    if (-not $script:Splash) { return }
+    try { $script:Splash.Window.Close() } catch { Write-Verbose "Açılış ekranı kapatılamadı: $($_.Exception.Message)" }
+    $script:Splash = $null
+}
 function Start-MainWindow {
     [CmdletBinding()]
     param()
@@ -451,8 +473,15 @@ function Start-MainWindow {
         [void][System.Windows.MessageBox]::Show($text, 'AD-IDM', 'OK', 'Error')
         return
     }
+    try {
+        $script:Splash = New-MainWindow -Xaml (Read-AppFile -RelativePath 'UI\Splash.xaml')
+        $script:Splash.Window.Show()
+    }
+    catch { Write-Verbose "Açılış ekranı gösterilemedi: $($_.Exception.Message)"; $script:Splash = $null }
+    Show-SplashStep -Message 'ActiveDirectory modülü denetleniyor…' -Percent 10
     $adModule = Get-Module -ListAvailable -Name ActiveDirectory | Sort-Object -Property Version -Descending | Select-Object -First 1
     if (-not $adModule) {
+        Close-Splash
         $text = "ActiveDirectory modülü (RSAT) bulunamadı.`n`nWindows 10/11: Add-WindowsCapability -Online -Name Rsat.ActiveDirectory.DS-LDS.Tools~~~~0.0.1.0`nWindows Server: Install-WindowsFeature RSAT-AD-PowerShell"
         Write-Error -Message $text -Category NotInstalled
         [void][System.Windows.MessageBox]::Show($text, 'AD-IDM', 'OK', 'Error')
@@ -462,9 +491,11 @@ function Start-MainWindow {
     $moveTimer = $null
     $pstTimer = $null
     try {
+        Show-SplashStep -Message 'Arka plan iş motoru başlatılıyor (ActiveDirectory yükleniyor)…' -Percent 25
         Initialize-TaskEngine -WorkerScriptTexts @($script:WorkerScripts | ForEach-Object { Read-AppFile -RelativePath $_ }) -RequiredModules @('ActiveDirectory') `
             -OnMessage { param($Item) Show-WorkerMessage -Item $Item } `
             -OnBusyChanged { param($IsBusy, $Message) Set-BusyState -IsBusy $IsBusy -Message $Message }
+        Show-SplashStep -Message 'Ana pencere oluşturuluyor…' -Percent 60
         $main = New-MainWindow -Xaml $script:Xaml
         $script:Window = $main.Window
         $script:Ui = $main.Controls
@@ -475,6 +506,7 @@ function Start-MainWindow {
             catch { Write-Verbose "Pencere simgesi yüklenemedi: $($_.Exception.Message)" }
         }
         $script:Ui.txtLogPath.Text = "Günlük dosyası: $script:LogPath"
+        Show-SplashStep -Message 'Arayüz hazırlanıyor…' -Percent 75
         Set-TabGroup -GroupName 'grpIdentity'
         Set-SettingsTabGroup -GroupName 'grpSetMail'
         foreach ($name in 'txtCanonicalName', 'txtDn') { $script:Ui[$name].IsReadOnly = $true }
@@ -483,10 +515,12 @@ function Start-MainWindow {
         Initialize-WindowSize
         Update-ScaleView
         Write-UiLog -Message "Uygulama başlatıldı. PowerShell $($PSVersionTable.PSVersion) | ActiveDirectory v$($adModule.Version) | Kullanıcı: $env:USERDOMAIN\$env:USERNAME" -Level Info
+        Show-SplashStep -Message 'Değişiklik günlüğü ve SMS servisi denetleniyor…' -Percent 85
         if (Write-AuditEvent -Action 'session.start' -Result 'info' -Fields ([ordered]@{ message = "PowerShell $($PSVersionTable.PSVersion)" })) {
             Write-UiLog -Message "Değişiklik günlüğü (SIEM, $($script:Audit.Format)): $($script:Audit.Path)" -Level Info
         }
         else {
+            Close-Splash
             [void](Show-MessageDialog -Message "Değişiklik günlüğü yazılamıyor:`n$($script:Audit.Path)`n`nYapılan değişiklikler SIEM'e aktarılamaz. Klasöre yazma izni verin veya -AuditLogPath ile başka yol seçin." -Icon Warning)
         }
         $sms = Get-SmsConfiguration
@@ -511,14 +545,18 @@ function Start-MainWindow {
                 while ($exception.InnerException) { $exception = $exception.InnerException }
                 try { Write-UiLog -Message "Beklenmeyen arayüz hatası: $($exception.Message)" -Level Error } catch { Write-Warning $exception.Message }
             })
+        Show-SplashStep -Message 'Hazır' -Percent 100
+        $script:Window.Add_ContentRendered({ Close-Splash })
         [void]$script:Window.ShowDialog()
     }
     catch {
+        Close-Splash
         $message = "Uygulama başlatılamadı: $($_.Exception.Message)"
         Write-Error -Message $message
         [void][System.Windows.MessageBox]::Show($message, 'AD-IDM', 'OK', 'Error')
     }
     finally {
+        Close-Splash
         if ($timer) { $timer.Stop() }
         if ($moveTimer) { $moveTimer.Stop() }
         if ($pstTimer) { $pstTimer.Stop() }

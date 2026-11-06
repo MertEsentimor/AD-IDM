@@ -1,0 +1,14 @@
+﻿<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AD-IDM" Width="420" SizeToContent="Height"
+        WindowStyle="None" ResizeMode="NoResize" WindowStartupLocation="CenterScreen" ShowInTaskbar="True"
+        Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource TextBrush}" FontFamily="Segoe UI" FontSize="13"
+        BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+        UseLayoutRounding="True" SnapsToDevicePixels="True" TextOptions.TextFormattingMode="Display">
+    <StackPanel Margin="28,24,28,22">
+        <TextBlock Text="AD-IDM" Style="{DynamicResource TitleText}"/>
+        <TextBlock Text="AD &amp; Exchange Kullanıcı Yöneticisi" Foreground="{DynamicResource TextMutedBrush}" Margin="0,2,0,18"/>
+        <ProgressBar x:Name="prgSplash" Style="{DynamicResource FlatProgress}" Minimum="0" Maximum="100" Value="0"/>
+        <TextBlock x:Name="txtSplashStep" Text="Başlatılıyor…" FontSize="12" Foreground="{DynamicResource TextMutedBrush}" Margin="0,8,0,0" TextTrimming="CharacterEllipsis"/>
+    </StackPanel>
+</Window>
