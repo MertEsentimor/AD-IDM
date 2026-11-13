@@ -87,6 +87,28 @@ $both = @(Get-UserDevice -SamAccountName 'ME9533' -DistinguishedName $script:Use
 Assert-True (($both | Where-Object Name -eq 'NB-ME9533').Source -eq 'İkisi' -and @($both | Where-Object Name -eq 'NB-ME9533').Count -eq 1) 'İki kaynaktan gelen tek kez listelenir'
 $script:ManagedComputers = @()
 
+# ---- Geri Dönüşüm Kutusu
+$script:BinScopes = @('DC=test,DC=local')
+$script:Lifetime = @{ 'msDS-deletedObjectLifetime' = 90; tombstoneLifetime = $null }
+function global:Get-ADOptionalFeature { param($Identity, $Server, $ErrorAction) [pscustomobject]@{ Name = 'Recycle Bin Feature'; EnabledScopes = $script:BinScopes } }
+function global:Get-ADRootDSE { param($Server, $ErrorAction) [pscustomobject]@{ configurationNamingContext = 'CN=Configuration,DC=test,DC=local' } }
+$script:DeviceGetADObject = ${function:Get-ADObject}
+function global:Get-ADObject {
+    param($Identity, $LDAPFilter, $Properties, $Server, $ErrorAction, $SearchBase, $SearchScope, [switch]$IncludeDeletedObjects)
+    if ($Identity -eq 'CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration,DC=test,DC=local') { return [pscustomobject]$script:Lifetime }
+    & $script:DeviceGetADObject @PSBoundParameters
+}
+$bin = Get-RecycleBinState
+Assert-True ($bin.Enabled -and $bin.LifetimeDays -eq 90) 'Açık, 90 gün'
+$script:Lifetime = @{ 'msDS-deletedObjectLifetime' = $null; tombstoneLifetime = 60 }
+Assert-True ((Get-RecycleBinState).LifetimeDays -eq 60) 'tombstoneLifetime yedeği'
+$script:Lifetime = @{ 'msDS-deletedObjectLifetime' = $null; tombstoneLifetime = $null }
+Assert-True ((Get-RecycleBinState).LifetimeDays -eq 180) 'Varsayılan 180'
+$script:BinScopes = @()
+Assert-True (-not (Get-RecycleBinState).Enabled) 'Kapalı algılanır'
+$script:BinScopes = @('DC=test,DC=local')
+$script:Lifetime = @{ 'msDS-deletedObjectLifetime' = 180; tombstoneLifetime = $null }
+
 Remove-Item -LiteralPath $temporaryFolder -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
 if ($script:FailureCount -gt 0) {

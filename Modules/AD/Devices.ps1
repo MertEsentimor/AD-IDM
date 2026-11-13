@@ -100,3 +100,16 @@ function global:Get-UserDevice {
     }
     return @($devices | Sort-Object -Property Name)
 }
+function global:Get-RecycleBinState {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter()][string]$Server)
+    if (-not $Server) { $Server = Get-PdcEmulator }
+    $feature = Get-ADOptionalFeature -Identity 'Recycle Bin Feature' -Server $Server -ErrorAction Stop
+    $configuration = [string](Get-ADRootDSE -Server $Server -ErrorAction Stop).configurationNamingContext
+    $service = Get-ADObject -Identity "CN=Directory Service,CN=Windows NT,CN=Services,$configuration" -Properties 'msDS-deletedObjectLifetime', 'tombstoneLifetime' -Server $Server -ErrorAction Stop
+    $days = 180
+    if ([int]$service.'msDS-deletedObjectLifetime' -gt 0) { $days = [int]$service.'msDS-deletedObjectLifetime' }
+    elseif ([int]$service.tombstoneLifetime -gt 0) { $days = [int]$service.tombstoneLifetime }
+    return [pscustomobject]@{ Enabled = (@($feature.EnabledScopes | Where-Object { $_ }).Count -gt 0); LifetimeDays = $days }
+}
