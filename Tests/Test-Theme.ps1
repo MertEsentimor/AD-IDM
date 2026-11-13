@@ -94,7 +94,7 @@ $groupedTabs = @([regex]::Matches(([regex]::Match($shellText, '(?s)\$script:TabG
 $windowTabs = @($namesInWindow | Where-Object { $_ -cmatch '^tab[A-Z]' -and $_ -ne 'tabMain' -and $_ -notlike 'tabSet*' })
 Assert-True ($groupedTabs.Count -eq 10 -and @($windowTabs | Where-Object { $_ -notin $groupedTabs }).Count -eq 0) "10 sekmenin hepsi bir grupta ($($groupedTabs.Count))"
 $pageTargets = @([regex]::Matches(([regex]::Match($shellText, '\$script:Pages = @\{.*?\}').Value), "(nav\w+) = '(page\w+)'"))
-Assert-True ($pageTargets.Count -eq 6 -and @($pageTargets | Where-Object { $_.Groups[1].Value -notin $namesInWindow -or $_.Groups[2].Value -notin $namesInWindow }).Count -eq 0) "6 sayfa ve gezinme düğmesi eşleşir ($($pageTargets.Count))"
+Assert-True ($pageTargets.Count -eq 7 -and @($pageTargets | Where-Object { $_.Groups[1].Value -notin $namesInWindow -or $_.Groups[2].Value -notin $namesInWindow }).Count -eq 0) "7 sayfa ve gezinme düğmesi eşleşir ($($pageTargets.Count))"
 $lastLogonIndex = $windowText.IndexOf('x:Name="txtLastLogon"')
 $passwordIndex = $windowText.IndexOf('x:Name="txtPwdExpire"')
 $datesText = [regex]::Match($windowText, '(?s)x:Name="pnlProfileDates".*?</Grid>').Value

@@ -41,7 +41,7 @@ $script:State = @{
     SmtpList = New-Object -TypeName 'System.Collections.Generic.List[string]'; SelectTabAfterLoad = $null; EnableAfterLoad = $null; PendingOu = $null
     OriginalCas = $null; OriginalSmtp = @(); OriginalPolicy = $null; CurrentMove = $null; MonitoredMoves = @{}; MailboxDatabases = @(); DbPicker = $null; LastExchangeUser = $null; NewUserDialog = $null; NewUserDraft = $null; NewUserDatabases = @()
     PstExports = @{}; PstScanned = $false; PstAttempts = @{}; PstActionAlias = $null; DisabledList = @(); DisabledOu = ''; DisabledReplicate = $false
-    LeaveEdit = New-Object -TypeName 'System.Collections.Generic.List[object]'; LeaveNowCandidate = ''; LeaveEditTarget = $null; LeaveList = @(); LeaveTask = $null; LeaveApplyExecute = $false; BulkLeave = $null; Report = $null; Settings = $null; ActiveNav = 'navUsers'; ReturningToSettings = $false
+    LeaveEdit = New-Object -TypeName 'System.Collections.Generic.List[object]'; LeaveNowCandidate = ''; LeaveEditTarget = $null; LeaveList = @(); LeaveTask = $null; LeaveApplyExecute = $false; BulkLeave = $null; Report = $null; Settings = $null; ActiveNav = 'navHome'; Dashboard = $null; ReturningToSettings = $false
 }
 $script:FieldMap = [ordered]@{
     GivenName         = @{ Control = 'txtGivenName'; Ldap = 'givenName'; Label = 'Ad (First Name)'; Tab = 'tabGeneral' }
@@ -93,7 +93,7 @@ $script:NewUserFieldMap = [ordered]@{
 $script:NoPolicyText = '(Yok)'
 $script:AutoDatabaseText = '(Otomatik: Exchange uygun veritabanını seçsin)'
 $script:CredDialog = $null
-$script:Pages = @{ navUsers = 'pageUsers'; navLeave = 'pageLeave'; navPst = 'pagePst'; navDisabled = 'pageDisabled'; navReports = 'pageReports'; navSettings = 'pageSettings' }
+$script:Pages = @{ navHome = 'pageHome'; navUsers = 'pageUsers'; navLeave = 'pageLeave'; navPst = 'pagePst'; navDisabled = 'pageDisabled'; navReports = 'pageReports'; navSettings = 'pageSettings' }
 $script:TabGroups = [ordered]@{
     grpIdentity = 'tabGeneral', 'tabAccount', 'tabGroups'
     grpLeave    = @('tabLeave')
@@ -132,6 +132,7 @@ function Set-ActivePage {
         $script:Ui[$script:Pages[$navKey]].Visibility = if ($navKey -eq $NavName) { 'Visible' } else { 'Collapsed' }
     }
     switch ($NavName) {
+        'navHome' { if (-not $script:State.Dashboard -or ((Get-Date) - $script:State.Dashboard.At).TotalMinutes -ge 5) { Start-DashboardLoad } }
         'navPst' { Start-PstPoll -Force; Update-PstExportView }
         'navDisabled' { Start-DisabledUserLoad }
         'navLeave' { Start-LeaveScheduleLoad }
@@ -252,6 +253,11 @@ function Register-ShellEvent {
     $ui.btnDuDelete.Add_Click({ Invoke-UiAction { Remove-SelectedDisabledUser } })
     $ui.btnDuOpen.Add_Click({ Invoke-UiAction { Open-SelectedDisabledUser } })
     $ui.btnDuEnable.Add_Click({ Invoke-UiAction { Enable-SelectedDisabledUser } })
+    $ui.btnHomeRefresh.Add_Click({ Invoke-UiAction { Start-DashboardLoad } })
+    $ui.btnHomeDisabled.Add_Click({ Invoke-UiAction { $script:Ui.navDisabled.IsChecked = $true } })
+    foreach ($listName in 'lstHomeLocked', 'lstHomeExpiring') {
+        $ui[$listName].Add_MouseDoubleClick({ param($sender, $e) Invoke-UiAction { Open-DashboardUser -List $sender } })
+    }
     $ui.btnMoveOu.Add_Click({ Invoke-UiAction { Select-PendingOu } })
     $ui.lstDu.Add_MouseDoubleClick({ Invoke-UiAction { Open-SelectedDisabledUser } })
     $ui.dpLeaveStart.Add_SelectedDateChanged({
@@ -372,7 +378,7 @@ function Register-ShellEvent {
                 elseif ($key -eq [System.Windows.Input.Key]::K) { $e.Handled = $true; [void]$script:Ui.txtSearch.Focus() }
             }
         })
-    $script:Window.Add_ContentRendered({ Invoke-UiAction { Start-EnvironmentCheck } })
+    $script:Window.Add_ContentRendered({ Invoke-UiAction { Start-EnvironmentCheck; Start-DashboardLoad } })
     $script:Window.Add_PreviewMouseWheel({
             param($sender, $e)
             if ([System.Windows.Input.Keyboard]::Modifiers -ne [System.Windows.Input.ModifierKeys]::Control) { return }

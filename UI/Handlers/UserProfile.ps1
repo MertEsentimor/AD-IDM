@@ -697,7 +697,7 @@ function Update-ActionState {
     $pending = $script:State.PendingCount -gt 0
     $idle = (-not $busy) -and $loaded
     $data = $script:State.CurrentData
-    foreach ($name in 'btnSearch', 'btnOuSearch', 'btnReplicate', 'btnNewUser', 'lstResults') { $script:Ui[$name].IsEnabled = -not $busy }
+    foreach ($name in 'btnSearch', 'btnOuSearch', 'btnReplicate', 'btnNewUser', 'lstResults', 'btnHomeRefresh') { $script:Ui[$name].IsEnabled = -not $busy }
     $script:Ui.btnReload.IsEnabled = $idle
     $script:Ui.btnReset.IsEnabled = (-not $busy) -and $pending
     $script:Ui.btnUpdate.IsEnabled = (-not $busy) -and $pending

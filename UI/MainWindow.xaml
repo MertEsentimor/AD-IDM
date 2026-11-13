@@ -46,7 +46,8 @@
                     </Popup>
                 </StackPanel>
                 <StackPanel>
-                    <RadioButton x:Name="navUsers" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE716;" Content="Kullanıcılar" IsChecked="True"/>
+                    <RadioButton x:Name="navHome" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE80F;" Content="Ana Sayfa" IsChecked="True"/>
+                    <RadioButton x:Name="navUsers" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE716;" Content="Kullanıcılar"/>
                     <RadioButton x:Name="navLeave" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE787;" Content="İzin Planı"/>
                     <RadioButton x:Name="navPst" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE896;" Content="PST"/>
                     <RadioButton x:Name="navDisabled" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE8F8;" Content="Devre Dışı"/>
@@ -114,7 +115,69 @@
 
             <!-- Sayfalar -->
             <Grid Grid.Row="1">
-                <Grid x:Name="pageUsers">
+                <DockPanel x:Name="pageHome">
+                    <DockPanel DockPanel.Dock="Top" Margin="24,20,24,12">
+                        <Button x:Name="btnHomeRefresh" DockPanel.Dock="Right" VerticalAlignment="Center" Tag="&#xE72C;" Content="Yenile"/>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="Ana sayfa" Style="{DynamicResource TitleText}"/>
+                            <TextBlock x:Name="txtHomeStatus" Text="Özet okunuyor..." Style="{DynamicResource SubtitleText}" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </DockPanel>
+                    <Grid DockPanel.Dock="Top" Margin="24,0,24,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition/>
+                            <ColumnDefinition/>
+                            <ColumnDefinition/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Style="{DynamicResource Card}" Margin="0,0,8,0">
+                            <StackPanel>
+                                <TextBlock Text="Kilitli hesaplar" Foreground="{DynamicResource TextMutedBrush}"/>
+                                <TextBlock x:Name="txtHomeLockedCount" Text="–" FontFamily="{DynamicResource HeadingFont}" FontSize="34" FontWeight="SemiBold" Margin="0,4,0,2"/>
+                                <TextBlock Text="PDC Emulator'a göre şu an kilitli" Style="{DynamicResource HintText}"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="1" Style="{DynamicResource Card}" Margin="8,0,8,0">
+                            <StackPanel>
+                                <TextBlock x:Name="txtHomeExpiringLabel" Text="Parolası 7 gün içinde dolacak" Foreground="{DynamicResource TextMutedBrush}"/>
+                                <TextBlock x:Name="txtHomeExpiringCount" Text="–" FontFamily="{DynamicResource HeadingFont}" FontSize="34" FontWeight="SemiBold" Margin="0,4,0,2"/>
+                                <TextBlock Text="Etkin, süresi dolan parolalı hesaplar" Style="{DynamicResource HintText}"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="2" Style="{DynamicResource Card}" Margin="8,0,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Devre dışı kullanıcılar" Foreground="{DynamicResource TextMutedBrush}"/>
+                                <TextBlock x:Name="txtHomeDisabledCount" Text="–" FontFamily="{DynamicResource HeadingFont}" FontSize="34" FontWeight="SemiBold" Margin="0,4,0,2"/>
+                                <TextBlock x:Name="txtHomeDisabledDetail" Text=" " Style="{DynamicResource HintText}" TextWrapping="Wrap"/>
+                                <Button x:Name="btnHomeDisabled" Tag="&#xE8A7;" Content="Devre Dışı sayfasını aç" HorizontalAlignment="Left" Margin="0,10,0,0"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                    <Grid Margin="24,0,24,20">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition/>
+                            <ColumnDefinition/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Style="{DynamicResource Card}" Padding="0" Margin="0,0,8,0">
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Top" Text="Kilitli hesaplar" Style="{DynamicResource SectionTitle}" Margin="18,14,18,4"/>
+                                <TextBlock x:Name="txtHomeLockedEmpty" DockPanel.Dock="Top" Text="Kilitli hesap yok." Style="{DynamicResource HintText}" Margin="18,0,18,12" Visibility="Collapsed"/>
+                                <ListBox x:Name="lstHomeLocked" BorderThickness="0" Background="Transparent" Padding="6,0,6,8" HorizontalContentAlignment="Stretch"
+                                         ItemContainerStyle="{DynamicResource ListItem}" ItemTemplate="{DynamicResource UserRowTemplate}"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True" ToolTip="Çift tıklayınca kullanıcı açılır"/>
+                            </DockPanel>
+                        </Border>
+                        <Border Grid.Column="1" Style="{DynamicResource Card}" Padding="0" Margin="8,0,0,0">
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Top" x:Name="txtHomeExpiringTitle" Text="Parolası 7 gün içinde dolacaklar" Style="{DynamicResource SectionTitle}" Margin="18,14,18,4"/>
+                                <TextBlock x:Name="txtHomeExpiringEmpty" DockPanel.Dock="Top" Text="Yakında parolası dolacak kullanıcı yok." Style="{DynamicResource HintText}" Margin="18,0,18,12" Visibility="Collapsed"/>
+                                <ListBox x:Name="lstHomeExpiring" BorderThickness="0" Background="Transparent" Padding="6,0,6,8" HorizontalContentAlignment="Stretch"
+                                         ItemContainerStyle="{DynamicResource ListItem}" ItemTemplate="{DynamicResource UserRowTemplate}"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True" ToolTip="Çift tıklayınca kullanıcı açılır"/>
+                            </DockPanel>
+                        </Border>
+                    </Grid>
+                </DockPanel>
+                <Grid x:Name="pageUsers" Visibility="Collapsed">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition x:Name="colResults" Width="280"/>
                         <ColumnDefinition Width="*"/>

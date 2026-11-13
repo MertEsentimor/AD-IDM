@@ -18,6 +18,7 @@
         $script:State.SuppressSelection = $false
     }
     $script:Ui.txtResultCount.Text = [string]$items.Count
+    if (-not $script:Ui.navUsers.IsChecked) { $script:Ui.navUsers.IsChecked = $true }
     $script:Ui.txtResultsEmpty.Visibility = if ($items.Count -eq 0) { 'Visible' } else { 'Collapsed' }
     if ($script:Layout.Mode -eq 'Compact' -and $items.Count -ne 1) { Set-SidePane -Open $true }
     if ($items.Count -eq 0) {

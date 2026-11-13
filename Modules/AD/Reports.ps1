@@ -94,3 +94,64 @@
     }
     Write-WorkerLog -Message "Rapor hazır: $($users.Count) kullanıcı, $($Fields.Count) alan" -Level Info
 }
+function global:Get-DashboardSummary {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()][ValidateRange(1, 90)][int]$ExpiryDays = 7,
+        [Parameter()][ValidateRange(1, 1000)][int]$MaxItems = 200
+    )
+    $server = Get-PdcEmulator
+    $now = Get-Date
+    $errors = New-Object -TypeName 'System.Collections.Generic.List[string]'
+    $userFilter = '(objectCategory=person)(objectClass=user)'
+    $disabledBit = '(userAccountControl:1.2.840.113556.1.4.803:=2)'
+    $neverExpiresBit = '(userAccountControl:1.2.840.113556.1.4.803:=65536)'
+    $nameOf = { param($User) if ($User.DisplayName) { [string]$User.DisplayName } else { [string]$User.Name } }
+
+    Set-WorkerProgress -Percent 5 -Status 'Kilitli hesaplar okunuyor (PDC)...'
+    $locked = @()
+    try {
+        # LockedOut, kilit süresi dolmuş hesapları ayıklar; lockoutTime tek başına yeterli değil.
+        $locked = @(Get-ADUser -LDAPFilter "(&$userFilter(lockoutTime>=1))" -Properties DisplayName, LockedOut, lockoutTime -Server $server -ResultPageSize 500 -ErrorAction Stop |
+                Where-Object { $_.LockedOut } | ForEach-Object {
+                    $at = if ([long]$_.lockoutTime -gt 0) { [datetime]::FromFileTime([long]$_.lockoutTime) } else { $null }
+                    [pscustomobject]@{ ObjectGuid = $_.ObjectGUID.ToString(); Name = & $nameOf $_; SamAccountName = [string]$_.SamAccountName; At = $at; DetailText = $(if ($at) { $at.ToString('dd.MM.yyyy HH:mm') } else { '' }) }
+                } | Sort-Object -Property At -Descending)
+    }
+    catch { $errors.Add("Kilitli hesaplar okunamadı: $($_.Exception.Message)") }
+
+    Set-WorkerProgress -Percent 35 -Status "Parolası $ExpiryDays gün içinde dolacaklar okunuyor..."
+    $expiring = @()
+    try {
+        $limit = $now.AddDays($ExpiryDays)
+        $expiring = @(Get-ADUser -LDAPFilter "(&$userFilter(!$disabledBit)(!$neverExpiresBit)(pwdLastSet>=1))" -Properties DisplayName, 'msDS-UserPasswordExpiryTimeComputed' -Server $server -ResultPageSize 500 -ErrorAction Stop | ForEach-Object {
+                $computed = [long]$_.'msDS-UserPasswordExpiryTimeComputed'
+                if ($computed -le 0 -or $computed -eq [long]::MaxValue) { return }
+                $expiry = [datetime]::FromFileTime($computed)
+                if ($expiry -lt $now -or $expiry -gt $limit) { return }
+                $days = [int][math]::Floor(($expiry - $now).TotalDays)
+                [pscustomobject]@{ ObjectGuid = $_.ObjectGUID.ToString(); Name = & $nameOf $_; SamAccountName = [string]$_.SamAccountName; At = $expiry; DetailText = $(if ($days -eq 0) { "Bugün $($expiry.ToString('HH:mm'))" } else { "$days gün ($($expiry.ToString('dd.MM.yyyy')))" }) }
+            } | Sort-Object -Property At)
+    }
+    catch { $errors.Add("Parola bitişleri okunamadı: $($_.Exception.Message)") }
+
+    Set-WorkerProgress -Percent 70 -Status 'Devre dışı kullanıcılar sayılıyor...'
+    $disabled = $null
+    try { $disabled = Get-DisabledUserList -SkipEventLog }
+    catch { $errors.Add("Devre dışı kullanıcılar okunamadı: $($_.Exception.Message)") }
+    $disabledUsers = if ($disabled) { @($disabled.Users) } else { @() }
+    Set-WorkerProgress -Percent 100 -Status 'Ana sayfa özeti hazır.'
+    return [pscustomobject]@{
+        At              = $now
+        ExpiryDays      = $ExpiryDays
+        LockedCount     = $locked.Count
+        Locked          = @($locked | Select-Object -First $MaxItems)
+        ExpiringCount   = $expiring.Count
+        Expiring        = @($expiring | Select-Object -First $MaxItems)
+        DisabledCount   = $(if ($disabled) { $disabledUsers.Count } else { $null })
+        DisabledOverdue = @($disabledUsers | Where-Object { $_.Overdue }).Count
+        DisabledUnknown = @($disabledUsers | Where-Object { -not $_.DisabledAt }).Count
+        Errors          = $errors.ToArray()
+    }
+}

@@ -56,7 +56,7 @@ function global:Find-AccountDisableEvent {
 function global:Get-DisabledUserList {
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param()
+    param([Parameter()][switch]$SkipEventLog)
     $server = Get-PdcEmulator
     $ou = Get-DisabledUsersOu
     $attribute = $Sync.PreviousOuAttribute
@@ -87,7 +87,7 @@ function global:Get-DisabledUserList {
     }
     $items = @($items)
     $missing = @($items | Where-Object { -not $_.DisabledBy })
-    if ($missing.Count -gt 0) {
+    if ($missing.Count -gt 0 -and -not $SkipEventLog) {
         $events = Find-AccountDisableEvent -Sid ([string[]]@($missing | ForEach-Object { $_.Sid }))
         foreach ($item in $missing) {
             if (-not $events.ContainsKey($item.Sid)) { continue }
