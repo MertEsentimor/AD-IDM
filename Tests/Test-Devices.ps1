@@ -46,6 +46,11 @@ Assert-True ((Test-DeviceNamePattern -Pattern 'NB-{sam}*') -match '\*') 'Joker r
 Assert-True ($null -eq (Test-DeviceNamePattern -Pattern '')) 'Boş kural geçerli'
 Assert-True ((ConvertFrom-DeviceName -Pattern 'NB-{sam}' -Name 'NB-ME9533-2') -eq 'ME9533') 'Addan sam çıkarılır'
 Assert-True ($null -eq (ConvertFrom-DeviceName -Pattern 'NB-{sam}' -Name 'TNB-SA0042')) 'Kurala uymayan ad'
+$previousCulture = [System.Threading.Thread]::CurrentThread.CurrentCulture
+[System.Threading.Thread]::CurrentThread.CurrentCulture = [System.Globalization.CultureInfo]::GetCultureInfo('tr-TR')
+Assert-True ((Test-DeviceNameMatch -Pattern 'NB-{sam}' -SamAccountName 'ali' -Name 'NB-ALI')) 'Türkçe kültürde I/i eşleşir'
+Assert-True ((ConvertFrom-DeviceName -Pattern 'nbi-{sam}' -Name 'NBI-ALI') -eq 'ALI') 'Türkçe kültürde addan sam çıkarılır'
+[System.Threading.Thread]::CurrentThread.CurrentCulture = $previousCulture
 
 # ---- Kullanıcı cihazları
 $script:UserDn = 'CN=Mert,OU=U,DC=test,DC=local'
@@ -73,6 +78,17 @@ function global:Get-ADObject {
     if ($LDAPFilter -match 'msFVE-RecoveryInformation' -and $SearchBase -like 'CN=NB-ME9533,*') { return @([pscustomobject]@{ Name = 'k1' }, [pscustomobject]@{ Name = 'k2' }) }
     return @()
 }
+$script:ExistingSams = @('ME9533-T')
+function global:Get-ADUser {
+    param($Identity, $LDAPFilter, $Server, $Properties, $ErrorAction)
+    if ($LDAPFilter -match '^\(sAMAccountName=(.+)\)$' -and $script:ExistingSams -contains $Matches[1]) { return [pscustomobject]@{ SamAccountName = $Matches[1] } }
+}
+$script:NameComputers += New-FakeComputer -Name 'NB-ME9533-3'
+$script:NameComputers += New-FakeComputer -Name 'NB-ME9533-T'
+$suffixOwner = @(Get-UserDevice -SamAccountName 'ME9533' -DistinguishedName $script:UserDn)
+Assert-True (($suffixOwner | Where-Object Name -eq 'NB-ME9533-T').Conflict -match 'ME9533-T' -and -not ($suffixOwner | Where-Object Name -eq 'NB-ME9533-3').Conflict) 'Ek başka kullanıcının adıysa cihaz atlanır'
+$script:NameComputers = @($script:NameComputers | Where-Object { $_.Name -notin 'NB-ME9533-3', 'NB-ME9533-T' })
+$script:ExistingSams = @()
 $devices = @(Get-UserDevice -SamAccountName 'ME9533' -DistinguishedName $script:UserDn)
 Assert-True ((@($devices.Name) -join ',') -eq 'NB-ME9533,NB-ME9533-2,PC-ELLE') 'Ad kuralı + managedBy birleşir, NB-ME95331 elenir'
 Assert-True (($devices | Where-Object Name -eq 'NB-ME9533-2').Conflict -match 'Other') 'Çakışma işaretlenir'
@@ -111,7 +127,7 @@ $script:Lifetime = @{ 'msDS-deletedObjectLifetime' = 180; tombstoneLifetime = $n
 
 # ---- Silme
 $script:DisabledDn = 'CN=Mert,OU=DisabledUsers,DC=test,DC=local'
-function global:Get-ADUser { param($Identity, $Server, $Properties, $ErrorAction) [pscustomobject]@{ Enabled = $false; SamAccountName = 'ME9533'; DistinguishedName = $script:DisabledDn; ObjectGUID = [guid]'11111111-1111-1111-1111-111111111111' } }
+function global:Get-ADUser { param($Identity, $LDAPFilter, $Server, $Properties, $ErrorAction) if ($LDAPFilter) { return }; [pscustomobject]@{ Enabled = $false; SamAccountName = 'ME9533'; DistinguishedName = $script:DisabledDn; ObjectGUID = [guid]'11111111-1111-1111-1111-111111111111' } }
 $script:FailOn = $null
 function global:Remove-ADObject {
     param($Identity, [switch]$Recursive, $Server, $Confirm, $ErrorAction)
@@ -128,6 +144,11 @@ $deleteResult = $r
 $script:Calls.Clear(); $script:FailOn = 'CN=NB-ME9533,'
 $r = @(Remove-DisabledUser -ObjectGuid 'g' -Confirm:$false)
 Assert-True (-not $r[0].Success -and $r[0].Message -match 'NB-ME9533' -and $script:Calls -notcontains $script:DisabledDn) 'Cihaz silinemezse kullanıcı silinmez'
+$script:NameComputers += New-FakeComputer -Name 'NB-ME9533-3'
+$script:Calls.Clear(); $script:FailOn = 'CN=NB-ME9533-3,'
+$r = @(Remove-DisabledUser -ObjectGuid 'g' -Confirm:$false)
+Assert-True ($r[0].Message -match 'Silinen cihazlar: NB-ME9533\b' -and $r[0].Message -match 'silinemedi: NB-ME9533-3') 'Kısmi silmede silinen cihazlar da bildirilir'
+$script:NameComputers = $allComputers
 $script:Calls.Clear(); $script:FailOn = $null; $script:BinScopes = @()
 $r = @(Remove-DisabledUser -ObjectGuid 'g' -Confirm:$false)
 Assert-True (-not $r[0].Success -and $r[0].Message -match 'Geri Dönüşüm' -and $script:Calls.Count -eq 0) 'Geri Dönüşüm Kutusu kapalıyken hiçbir şey silinmez'

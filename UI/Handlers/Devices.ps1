@@ -200,7 +200,13 @@ function Show-DeviceSecretDialog {
 function Copy-SecretToClipboard {
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$Value)
-    [System.Windows.Clipboard]::SetText($Value)
+    # Win+V geçmişi ve bulut panosu bu biçimleri görünce değeri saklamaz.
+    $data = New-Object -TypeName System.Windows.DataObject
+    $data.SetText($Value)
+    $data.SetData('ExcludeClipboardContentFromMonitorProcessing', (New-Object -TypeName System.IO.MemoryStream -ArgumentList (, [byte[]](0, 0, 0, 0))))
+    $data.SetData('CanIncludeInClipboardHistory', (New-Object -TypeName System.IO.MemoryStream -ArgumentList (, [byte[]](0, 0, 0, 0))))
+    $data.SetData('CanUploadToCloudClipboard', (New-Object -TypeName System.IO.MemoryStream -ArgumentList (, [byte[]](0, 0, 0, 0))))
+    [System.Windows.Clipboard]::SetDataObject($data, $true)
     if ($script:ClipboardTimer) { $script:ClipboardTimer.Stop() }
     $script:ClipboardSecret = $Value
     $script:ClipboardTimer = New-Object -TypeName System.Windows.Threading.DispatcherTimer

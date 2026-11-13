@@ -17,7 +17,7 @@ function global:Test-DeviceNameMatch {
     )
     if (-not $Pattern -or (Test-DeviceNamePattern -Pattern $Pattern)) { return $false }
     $base = [regex]::Escape($Pattern).Replace('\{sam}', [regex]::Escape($SamAccountName))
-    return [regex]::IsMatch($Name, "^$base(-.+)?$", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    return [regex]::IsMatch($Name, "^$base(-.+)?$", ([System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::CultureInvariant))
 }
 function global:ConvertTo-DeviceNameFilter {
     [CmdletBinding()]
@@ -41,7 +41,7 @@ function global:ConvertFrom-DeviceName {
     )
     if (-not $Pattern -or (Test-DeviceNamePattern -Pattern $Pattern)) { return $null }
     $expression = '^' + [regex]::Escape($Pattern).Replace('\{sam}', '(?<sam>[^-]+)') + '(-.+)?$'
-    $match = [regex]::Match($Name, $expression, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $match = [regex]::Match($Name, $expression, ([System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::CultureInvariant))
     if ($match.Success) { return $match.Groups['sam'].Value }
     return $null
 }
@@ -51,6 +51,26 @@ function global:Get-DnCommonName {
     param([Parameter()][AllowEmptyString()][AllowNull()][string]$DistinguishedName)
     if ($DistinguishedName -match '^CN=((?:\\.|[^,])+)') { return ($Matches[1] -replace '\\(.)', '$1') }
     return [string]$DistinguishedName
+}
+function global:Get-DeviceSuffixOwner {
+    # NB-ali-adm hem ali hem ali-adm kuralına uyar; ekin başka bir kullanıcı adı olduğu cihaz otomatik silinmez.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)][string]$Pattern,
+        [Parameter(Mandatory = $true)][string]$SamAccountName,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$Server
+    )
+    $base = $Pattern.Replace('{sam}', $SamAccountName)
+    if ($Name.Length -le $base.Length) { return $null }
+    $parts = $Name.Substring($base.Length + 1).Split('-')
+    for ($i = 1; $i -le $parts.Count; $i++) {
+        $candidate = $SamAccountName + '-' + ($parts[0..($i - 1)] -join '-')
+        $other = Get-ADUser -LDAPFilter ('(sAMAccountName={0})' -f (ConvertTo-LdapFilterValue -Value $candidate)) -Server $Server -ErrorAction Stop | Select-Object -First 1
+        if ($other) { return "ad başka bir kullanıcının kuralına da uyuyor: $($other.SamAccountName)" }
+    }
+    return $null
 }
 function global:Get-UserDevice {
     [CmdletBinding()]
@@ -83,6 +103,8 @@ function global:Get-UserDevice {
         $computer = $entry.Computer
         $dn = [string]$computer.DistinguishedName
         $managedBy = [string]$computer.managedBy
+        $conflict = if ($managedBy -and -not $managedBy.Equals($DistinguishedName, [System.StringComparison]::OrdinalIgnoreCase)) { "managedBy başka kullanıcıyı gösteriyor: $(Get-DnCommonName -DistinguishedName $managedBy)" } else { $null }
+        if (-not $conflict -and $entry.ByName -and -not $entry.ByOwner) { $conflict = Get-DeviceSuffixOwner -Pattern $pattern -SamAccountName $SamAccountName -Name ([string]$computer.Name) -Server $Server }
         $bitLocker = @(Get-ADObject -SearchBase $dn -SearchScope OneLevel -LDAPFilter '(objectClass=msFVE-RecoveryInformation)' -Server $Server -ErrorAction Stop | Where-Object { $_ })
         [pscustomobject]@{
             Name              = [string]$computer.Name
@@ -93,7 +115,7 @@ function global:Get-UserDevice {
             LastLogon         = if ([long]$computer.lastLogonTimestamp -gt 0) { [datetime]::FromFileTime([long]$computer.lastLogonTimestamp) } else { $null }
             Source            = if ($entry.ByName -and $entry.ByOwner) { 'İkisi' } elseif ($entry.ByName) { 'Ad kuralı' } else { 'Elle' }
             ManagedBy         = $managedBy
-            Conflict          = if ($managedBy -and -not $managedBy.Equals($DistinguishedName, [System.StringComparison]::OrdinalIgnoreCase)) { "managedBy başka kullanıcıyı gösteriyor: $(Get-DnCommonName -DistinguishedName $managedBy)" } else { $null }
+            Conflict          = $conflict
             BitLockerCount    = $bitLocker.Count
             LapsPresent       = [bool]$computer.'ms-Mcs-AdmPwdExpirationTime'
         }

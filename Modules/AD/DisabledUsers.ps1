@@ -160,7 +160,8 @@ function global:Remove-DisabledUser {
             $result.Devices = @($deviceResults)
             $failedDevices = @($result.Devices | Where-Object { -not $_.Skipped -and -not $_.Success })
             if ($failedDevices.Count -gt 0) {
-                throw ('Cihaz silinemedi: ' + (($failedDevices | ForEach-Object { "$($_.Name) ($($_.Message))" }) -join '; ') + '; kullanıcı silinmedi.')
+                $deletedNames = @($result.Devices | Where-Object { $_.Success } | ForEach-Object { $_.Name })
+                throw ('Cihaz silinemedi: ' + (($failedDevices | ForEach-Object { "$($_.Name) ($($_.Message))" }) -join '; ') + '; kullanıcı silinmedi.' + $(if ($deletedNames.Count) { ' Silinen cihazlar: ' + ($deletedNames -join ', ') + '.' } else { '' }))
             }
             if ($WhatIfPreference) {
                 Write-WorkerLog -Message "[WhatIf] Remove-ADObject -Identity '$dn' -Recursive -Server $server" -Level Warning
