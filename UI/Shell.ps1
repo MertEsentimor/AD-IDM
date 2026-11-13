@@ -298,6 +298,7 @@ function Register-ShellEvent {
     $ui.btnLvOpen.Add_Click({ Invoke-UiAction { Open-SelectedLeaveUser } })
     $ui.lstLv.Add_MouseDoubleClick({ Invoke-UiAction { Open-SelectedLeaveUser } })
     Register-SettingsPageEvent
+    Register-DeviceEvent
     foreach ($groupName in $script:SettingsTabGroups.Keys) {
         $ui[$groupName].Add_Checked({ param($sender, $e) Invoke-UiAction { Set-SettingsTabGroup -GroupName $sender.Name } })
     }

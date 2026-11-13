@@ -484,6 +484,50 @@
                                                     </Border>
                                                 </StackPanel>
                                             </Border>
+                                    <Border Style="{DynamicResource Section}">
+<StackPanel>
+<TextBlock Text="Cihazlar" Style="{DynamicResource SectionTitle}"/>
+                                    <TextBlock x:Name="txtDevicesStatus" Text="" Style="{DynamicResource HintText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                                    <ListBox x:Name="lstDevices" BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled" MaxHeight="220">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="140"/>
+                                                        <ColumnDefinition Width="80"/>
+                                                        <ColumnDefinition Width="80"/>
+                                                        <ColumnDefinition Width="80"/>
+                                                        <ColumnDefinition Width="80"/>
+                                                        <ColumnDefinition Width="50"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding Name}" ToolTip="{Binding DistinguishedName}" Style="{DynamicResource ListCell}" FontWeight="SemiBold"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding Source}" Style="{DynamicResource ListCell}"/>
+                                                    <TextBlock Grid.Column="2" Text="{Binding StatusText}" Style="{DynamicResource ListCell}"/>
+                                                    <TextBlock Grid.Column="3" Text="{Binding LastLogonText}" ToolTip="Son oturum" Style="{DynamicResource ListCell}"/>
+                                                    <TextBlock Grid.Column="4" Text="{Binding BitLockerText}" ToolTip="BitLocker kurtarma kaydı" Style="{DynamicResource ListCell}"/>
+                                                    <TextBlock Grid.Column="5" Text="{Binding LapsText}" ToolTip="LAPS parolası" Style="{DynamicResource ListCell}"/>
+                                                    <TextBlock Grid.Column="6" Text="{Binding ConflictText}" ToolTip="{Binding Ou}" Style="{DynamicResource ListCell}" Foreground="{DynamicResource WarningBrush}"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <Button x:Name="btnDeviceUnlink" Tag="&#xE71B;" Content="Bağı Kaldır" IsEnabled="False"/>
+                                    </StackPanel>
+                                    <TextBlock Text="Cihaz bağla (bilgisayar adının başı)" Style="{DynamicResource FieldLabel}" Margin="0,16,0,4"/>
+                                    <DockPanel>
+                                        <Button x:Name="btnDeviceSearch" DockPanel.Dock="Right" Margin="8,0,0,0" Tag="&#xE721;" Content="Ara"/>
+                                        <TextBox x:Name="txtDeviceSearch" AutomationProperties.Name="Bağlanacak bilgisayar adı"/>
+                                    </DockPanel>
+                                    <ListBox x:Name="lstDeviceSearch" DisplayMemberPath="DisplayText" MaxHeight="160" Margin="0,6,0,0" Visibility="Collapsed"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <Button x:Name="btnDeviceLink" Tag="&#xE71B;" Content="Seçili Cihazı Bağla" IsEnabled="False"/>
+                                    </StackPanel>
+                                    <TextBlock Style="{DynamicResource HintText}" TextWrapping="Wrap" Margin="0,6,0,0"
+                                               Text="Bağlama, bilgisayarın managedBy alanına bu kullanıcıyı yazar. Ad kuralıyla eşleşen cihazlar otomatik görünür; kullanıcı Devre Dışı sayfasından silinince listedeki cihazlar da silinir."/>
+</StackPanel>
+</Border>
                                 </StackPanel>
                             </ScrollViewer>
                                     </TabItem>

@@ -59,6 +59,7 @@
         $script:Ui.lstGroupResults.ItemsSource = $null
         $script:Ui.bdGroupResults.Visibility = 'Collapsed'
         Update-GroupView
+        Update-ProfileDeviceView -Data $Data
         Update-LeaveView
         $sourceText = switch ($exchange.AddressSource) {
             'Mailbox' { 'Kaynak: Exchange On-Premises posta kutusu (Set-Mailbox -EmailAddresses)' }

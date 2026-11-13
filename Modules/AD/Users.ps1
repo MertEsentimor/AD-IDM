@@ -176,6 +176,8 @@ function global:Get-UserProfileData {
     $groups = @()
     try { $groups = @(Get-UserGroupMembership -AdUser $user) }
     catch { Write-WorkerLog -Message "Grup üyelikleri okunamadı: $($_.Exception.Message)" -Level Warning }
+    Set-WorkerProgress -Percent 68 -Status 'Cihazlar okunuyor...'
+    $deviceData = Get-ProfileDeviceData -SamAccountName $ad.SamAccountName -DistinguishedName $ad.DistinguishedName
     Set-WorkerProgress -Percent 70 -Status 'Exchange bilgileri okunuyor...'
     try {
         $exchange = Get-ExchangeUserData -AdUser $user
@@ -200,6 +202,8 @@ function global:Get-UserProfileData {
         Exchange  = $exchange
         Photo     = $photo
         Groups    = $groups
+        Devices   = $deviceData.Devices
+        DevicesError = $deviceData.DevicesError
         LoadedAt  = Get-Date
     }
 }

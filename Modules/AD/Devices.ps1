@@ -240,3 +240,25 @@ function global:Get-DeletedDeviceSecret {
         BitLocker     = @($keys | ForEach-Object { [pscustomobject]@{ Name = [string]$_.Name; RecoveryPassword = [string]$_.'msFVE-RecoveryPassword' } })
     }
 }
+function global:Get-ProfileDeviceData {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)][string]$SamAccountName,
+        [Parameter(Mandatory = $true)][string]$DistinguishedName
+    )
+    try {
+        $devices = @(Get-UserDevice -SamAccountName $SamAccountName -DistinguishedName $DistinguishedName | ForEach-Object {
+                $_ | Add-Member -NotePropertyName StatusText -NotePropertyValue $(if ($_.Enabled) { 'Etkin' } else { 'Devre dışı' }) -PassThru |
+                    Add-Member -NotePropertyName LastLogonText -NotePropertyValue $(if ($_.LastLogon) { $_.LastLogon.ToString('dd.MM.yyyy') } else { '-' }) -PassThru |
+                    Add-Member -NotePropertyName BitLockerText -NotePropertyValue $(if ($_.BitLockerCount) { "$($_.BitLockerCount) anahtar" } else { 'Yok' }) -PassThru |
+                    Add-Member -NotePropertyName LapsText -NotePropertyValue $(if ($_.LapsPresent) { 'Var' } else { 'Yok' }) -PassThru |
+                    Add-Member -NotePropertyName ConflictText -NotePropertyValue $(if ($_.Conflict) { [string]$_.Conflict } else { '' }) -PassThru
+            })
+        return [pscustomobject]@{ Devices = $devices; DevicesError = $null }
+    }
+    catch {
+        Write-WorkerLog -Message "Cihazlar okunamadı: $($_.Exception.Message)" -Level Warning
+        return [pscustomobject]@{ Devices = @(); DevicesError = $_.Exception.Message }
+    }
+}

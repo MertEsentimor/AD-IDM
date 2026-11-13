@@ -235,6 +235,16 @@ Assert-True ((Get-DeviceNamePatternSetting -Path $appConfig).Pattern -eq '') 'Bo
 $badSetting = Get-DeviceNamePatternSetting -Path $appConfig
 Assert-True ($badSetting.Pattern -eq '' -and $badSetting.Warning -match '\{sam\}') 'Geçersiz kural kapatılır ve uyarılır'
 
+# ---- Profil verisi
+$script:RealGetUserDevice = ${function:Get-UserDevice}
+function global:Get-UserDevice { param($SamAccountName, $DistinguishedName, $Server) throw 'boom' }
+$profileDevices = Get-ProfileDeviceData -SamAccountName 'ME9533' -DistinguishedName $script:UserDn
+Assert-True ($profileDevices.DevicesError -match 'boom' -and @($profileDevices.Devices).Count -eq 0) 'Cihaz hatası profili bozmaz'
+${function:global:Get-UserDevice} = $script:RealGetUserDevice
+$profileDevices = Get-ProfileDeviceData -SamAccountName 'ME9533' -DistinguishedName $script:UserDn
+$first = @($profileDevices.Devices)[0]
+Assert-True ($null -eq $profileDevices.DevicesError -and $first.StatusText -eq 'Etkin' -and $first.LastLogonText -eq '01.11.2026' -and $first.BitLockerText -eq '2 anahtar' -and $first.LapsText -eq 'Var') 'Profil satırı metinleri'
+
 Remove-Item -LiteralPath $temporaryFolder -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
 if ($script:FailureCount -gt 0) {
