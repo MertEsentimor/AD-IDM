@@ -1412,11 +1412,18 @@
             <StackPanel VerticalAlignment="Center">
                 <TextBlock Text="Devre dışı kullanıcılar" Style="{DynamicResource TitleText}"/>
                 <TextBlock x:Name="txtDuOu" Style="{DynamicResource SubtitleText}" Margin="0,2,0,0"/>
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <RadioButton x:Name="grpDuUsers" GroupName="DisabledGroup" Style="{DynamicResource GroupTab}" Content="Kullanıcılar" IsChecked="True"/>
+                    <RadioButton x:Name="grpDuDevices" GroupName="DisabledGroup" Style="{DynamicResource GroupTab}" Content="Silinmiş Cihazlar"/>
+                </StackPanel>
             </StackPanel>
         </DockPanel>
         <Border Style="{DynamicResource DialogFooter}" DockPanel.Dock="Bottom">
             <DockPanel>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <StackPanel x:Name="pnlDdActions" DockPanel.Dock="Right" Orientation="Horizontal" Visibility="Collapsed">
+                    <Button x:Name="btnDdShowSecrets" Tag="&#xE8D7;" Content="Parolaları Göster..." IsEnabled="False" ToolTip="Seçili cihazın son LAPS parolasını ve BitLocker anahtarlarını Geri Dönüşüm Kutusu'ndan okur"/>
+                </StackPanel>
+                <StackPanel x:Name="pnlDuActions" DockPanel.Dock="Right" Orientation="Horizontal">
                 <Button x:Name="btnDuOpen" Tag="&#xE8A7;" Content="Kullanıcıyı Aç"/>
                 <Button x:Name="btnDuEnable" Margin="8,0,0,0" Tag="&#xE8FB;" Content="Hesabı Etkinleştir..." ToolTip="Kullanıcıyı açar ve profildeki etkinleştirme onayını gösterir (eski OU ve gruplar dahil)"/>
                 <Button x:Name="btnDuDelete" Margin="8,0,0,0" Tag="&#xE74D;" Content="Seçilenleri Sil..." Style="{DynamicResource DangerButton}"/>
@@ -1424,7 +1431,8 @@
                 <TextBlock x:Name="txtDuSummary" VerticalAlignment="Center" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,12,0"/>
             </DockPanel>
         </Border>
-        <DockPanel Margin="24,0,24,16">
+        <Grid>
+        <DockPanel x:Name="pnlDuUsers" Margin="24,0,24,16">
             <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
                 <Button x:Name="btnDuRefresh" DockPanel.Dock="Right" Tag="&#xE72C;" Content="Yenile" Margin="8,0,0,0"/>
                 <CheckBox x:Name="chkDuOverdue" DockPanel.Dock="Right" Content="Yalnızca 1 ayı dolanlar" VerticalAlignment="Center" Margin="16,0,8,0"/>
@@ -1491,6 +1499,65 @@
                 </DockPanel>
             </Border>
         </DockPanel>
+        <DockPanel x:Name="pnlDdDevices" Margin="24,0,24,16" Visibility="Collapsed">
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                <Button x:Name="btnDdRefresh" DockPanel.Dock="Right" Tag="&#xE72C;" Content="Yenile" Margin="8,0,0,0"/>
+                <TextBox x:Name="txtDdFilter" AutomationProperties.Name="Cihaz adı veya eski sahip ile filtrele" Margin="0" Tag="Cihaz adı veya eski sahip ile filtrele"
+                         ToolTip="Cihaz adı veya eski sahip ile filtrele"/>
+            </DockPanel>
+            <Border Style="{DynamicResource Card}" Padding="0">
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource LineSubtleBrush}" BorderThickness="0,0,0,1" Padding="18,10,18,9">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="170"/>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="130"/>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="90"/>
+                                <ColumnDefinition Width="60"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Cihaz" Style="{DynamicResource ListHeaderCell}"/>
+                            <TextBlock Grid.Column="1" Text="Eski sahip" Style="{DynamicResource ListHeaderCell}"/>
+                            <TextBlock Grid.Column="2" Text="Silinme" Style="{DynamicResource ListHeaderCell}"/>
+                            <TextBlock Grid.Column="3" Text="Kalan" Style="{DynamicResource ListHeaderCell}"/>
+                            <TextBlock Grid.Column="4" Text="BitLocker" Style="{DynamicResource ListHeaderCell}"/>
+                            <TextBlock Grid.Column="5" Text="LAPS" Style="{DynamicResource ListHeaderCell}"/>
+                            <TextBlock Grid.Column="6" Text="Eski OU" Style="{DynamicResource ListHeaderCell}"/>
+                        </Grid>
+                    </Border>
+                    <ListBox x:Name="lstDd" BorderThickness="0" Background="Transparent" Padding="0,4" HorizontalContentAlignment="Stretch"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="Transparent" CornerRadius="4" Padding="10,8" Margin="-10,-6,-10,-6">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="170"/>
+                                            <ColumnDefinition Width="110"/>
+                                            <ColumnDefinition Width="130"/>
+                                            <ColumnDefinition Width="80"/>
+                                            <ColumnDefinition Width="90"/>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Name}" Style="{DynamicResource ListCell}" FontWeight="SemiBold"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Owner}" Style="{DynamicResource ListCell}"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding DeletedText}" Style="{DynamicResource ListCell}"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding DaysLeftText}" Style="{DynamicResource ListCell}"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding BitLockerText}" Style="{DynamicResource ListCell}"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding LapsText}" Style="{DynamicResource ListCell}"/>
+                                        <TextBlock Grid.Column="6" Text="{Binding LastKnownParent}" ToolTip="{Binding LastKnownParent}" Style="{DynamicResource ListCell}" Foreground="{DynamicResource TextMutedBrush}"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+        </DockPanel>
+        </Grid>
     </DockPanel>
                 <DockPanel x:Name="pageReports" Visibility="Collapsed">
         <DockPanel DockPanel.Dock="Top" Margin="24,20,24,12">

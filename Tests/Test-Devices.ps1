@@ -24,7 +24,7 @@ $global:Sync = [hashtable]::Synchronized(@{
 $script:AppRoot = $temporaryFolder
 $script:Ui = @{}
 $script:Audit = @{ Operator = 'TEST\admin' }
-foreach ($relativePath in 'Core/WorkerBootstrap.ps1', 'Modules/AD/Search.ps1', 'Modules/AD/Devices.ps1', 'Modules/AD/DisabledUsers.ps1', 'Core/Audit.ps1', 'Core/Config.ps1', 'UI/Handlers/Settings.ps1') {
+foreach ($relativePath in 'Core/WorkerBootstrap.ps1', 'Modules/AD/Search.ps1', 'Modules/AD/Devices.ps1', 'Modules/AD/DisabledUsers.ps1', 'Core/Audit.ps1', 'Core/Config.ps1', 'UI/Handlers/Settings.ps1', 'UI/Handlers/Offboarding.ps1') {
     . (Join-Path -Path $projectRoot -ChildPath $relativePath)
 }
 $ErrorActionPreference = 'Stop'
@@ -144,7 +144,7 @@ $script:Calls.Clear(); $global:Sync.DeviceNamePattern = 'XX-{sam}'
 Assert-True (-not ($script:Calls -like 'CN=NB-ME9533*')) 'Silmede cihazlar yeniden çözülür'
 $global:Sync.DeviceNamePattern = 'NB-{sam}'
 $preview = Get-RemovalDevicePreview -ObjectGuid 'g'
-Assert-True (@($preview['g']).Count -eq 2) 'Onay önizlemesi cihazları döner'
+Assert-True (@($preview.Devices['g']).Count -eq 2 -and $preview.RecycleBin.LifetimeDays -eq 180) 'Onay önizlemesi cihazları ve saklama süresini döner'
 
 $auditPath = Join-Path -Path $temporaryFolder -ChildPath 'audit.log'
 Initialize-Audit -Path $auditPath
@@ -244,6 +244,16 @@ ${function:global:Get-UserDevice} = $script:RealGetUserDevice
 $profileDevices = Get-ProfileDeviceData -SamAccountName 'ME9533' -DistinguishedName $script:UserDn
 $first = @($profileDevices.Devices)[0]
 Assert-True ($null -eq $profileDevices.DevicesError -and $first.StatusText -eq 'Etkin' -and $first.LastLogonText -eq '01.11.2026' -and $first.BitLockerText -eq '2 anahtar' -and $first.LapsText -eq 'Var') 'Profil satırı metinleri'
+
+# ---- Onay metni
+$lines = @(Format-RemovalDeviceLine -Devices @(
+        [pscustomobject]@{ Name = 'NB-ME9533'; BitLockerCount = 2; LapsPresent = $true; Conflict = $null },
+        [pscustomobject]@{ Name = 'NB-ME9533-2'; BitLockerCount = 0; LapsPresent = $true; Conflict = $null },
+        [pscustomobject]@{ Name = 'NB-XX0001'; BitLockerCount = 0; LapsPresent = $false; Conflict = 'managedBy başka kullanıcıyı gösteriyor: Ali' }))
+Assert-True ($lines[0] -eq '|     Cihazlar: NB-ME9533 (BitLocker: 2 anahtar, LAPS: var), NB-ME9533-2 (BitLocker: yok, LAPS: var)') 'Cihaz satırı'
+Assert-True ($lines[1] -eq '|     Atlanacak: NB-XX0001 (managedBy başka kullanıcıyı gösteriyor: Ali)') 'Atlanan satırı'
+Assert-True (@(Format-RemovalDeviceLine -Devices @()).Count -eq 0) 'Cihazsız kullanıcıda satır yok'
+Assert-True ((Format-RemovalSummary -Results @([pscustomobject]@{ Success = $true; Devices = @([pscustomobject]@{ Success = $true; Skipped = $false }, [pscustomobject]@{ Success = $false; Skipped = $true }) })) -eq ', 1 cihaz silindi') 'Özet cihaz sayısı'
 
 Remove-Item -LiteralPath $temporaryFolder -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''

@@ -129,7 +129,9 @@ function global:Get-RemovalDevicePreview {
             Write-WorkerLog -Message "Cihazlar okunamadı ($guid): $($_.Exception.Message)" -Level Warning
         }
     }
-    return $preview
+    $recycleBin = $null
+    try { $recycleBin = Get-RecycleBinState -Server $server } catch { Write-WorkerLog -Message "Geri Dönüşüm Kutusu durumu okunamadı: $($_.Exception.Message)" -Level Warning }
+    return @{ Devices = $preview; RecycleBin = $recycleBin }
 }
 function global:Set-DeviceOwner {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]

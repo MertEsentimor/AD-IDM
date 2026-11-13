@@ -369,10 +369,59 @@ function Remove-SelectedDisabledUser {
     $selected = @($c.lstDu.SelectedItems)
     if ($selected.Count -eq 0) { $c.txtDuSummary.Text = 'Silmek için listeden bir veya daha fazla kullanıcı seçin (Ctrl / Shift ile çoklu seçim).'; return }
     if ($script:TaskEngine.CurrentJob -and -not $script:TaskEngine.CurrentJob.Silent) { $c.txtDuSummary.Text = 'Başka bir işlem sürüyor; biraz sonra tekrar deneyin.'; return }
-    $lines = $selected | ForEach-Object { "| $($_.Name) ($($_.SamAccountName))  -  devre dışı: $($_.DisabledText), $($_.DaysText)" }
+    $script:State.PendingRemoval = $selected
+    $c.txtDuSummary.Text = 'Kullanıcıların cihazları okunuyor...'
+    [void](Invoke-BackgroundTask -Name 'Silinecek cihazlar okunuyor' -Command 'Get-RemovalDevicePreview' -Arguments @{ ObjectGuid = [string[]]@($selected | ForEach-Object { $_.ObjectGuid }) } -OnSuccess {
+            param($Result)
+            Confirm-DisabledUserRemoval -Preview (@($Result | Where-Object { $_ }) | Select-Object -First 1)
+        } -OnFailure {
+            param($Message)
+            $script:Ui.txtDuSummary.Text = "Cihazlar okunamadı, silme başlatılmadı: $Message"
+        })
+}
+function Format-RemovalDeviceLine {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter()][AllowEmptyCollection()][object[]]$Devices = @())
+    $devices = @($Devices | Where-Object { $_ })
+    $deleted = @($devices | Where-Object { -not $_.Conflict } | ForEach-Object {
+            "$($_.Name) (BitLocker: $(if ($_.BitLockerCount) { "$($_.BitLockerCount) anahtar" } else { 'yok' }), LAPS: $(if ($_.LapsPresent) { 'var' } else { 'yok' }))"
+        })
+    $skipped = @($devices | Where-Object { $_.Conflict } | ForEach-Object { "$($_.Name) ($($_.Conflict))" })
+    $lines = @()
+    if ($deleted.Count) { $lines += '|     Cihazlar: ' + ($deleted -join ', ') }
+    if ($skipped.Count) { $lines += '|     Atlanacak: ' + ($skipped -join ', ') }
+    return $lines
+}
+function Format-RemovalSummary {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowEmptyCollection()][object[]]$Results = @())
+    $count = @($Results | Where-Object { $_ -and $_.Success } | ForEach-Object { @($_.Devices) } | Where-Object { $_ -and $_.Success -and -not $_.Skipped }).Count
+    if ($count -eq 0) { return '' }
+    return ", $count cihaz silindi"
+}
+function Confirm-DisabledUserRemoval {
+    [CmdletBinding()]
+    param([Parameter()][AllowNull()][object]$Preview)
+    $c = $script:Ui
+    $selected = @($script:State.PendingRemoval)
+    $script:State.PendingRemoval = $null
+    if ($selected.Count -eq 0) { return }
+    $deviceMap = if ($Preview -and $Preview.Devices) { $Preview.Devices } else { @{} }
+    $lifetime = if ($Preview -and $Preview.RecycleBin) { [int]$Preview.RecycleBin.LifetimeDays } else { 180 }
+    $lines = foreach ($user in $selected) {
+        "| $($user.Name) ($($user.SamAccountName))  -  devre dışı: $($user.DisabledText), $($user.DaysText)"
+        Format-RemovalDeviceLine -Devices @($deviceMap[[string]$user.ObjectGuid])
+    }
+    $c.txtDuSummary.Text = ''
     $recent = @($selected | Where-Object { -not $_.Overdue }).Count
     $message = "$($selected.Count) kullanıcı Active Directory'den KALICI olarak silinecek (PDC üzerinde Remove-ADObject -Recursive):`n`n" + ($lines -join "`n") +
     "`n`nExchange On-Premises posta kutuları bağlantısız duruma geçer ve veritabanının silinmiş posta kutusu saklama süresi (varsayılan 30 gün) sonunda temizlenir. AD Geri Dönüşüm Kutusu etkin değilse bu işlem geri alınamaz."
+    if (@($deviceMap.Values | ForEach-Object { @($_) } | Where-Object { $_ }).Count -gt 0) {
+        $message += "`n`nCihazlar BitLocker ve LAPS bilgileriyle birlikte silinir. Geri Dönüşüm Kutusu'nda $lifetime gün saklanır; bu süre içinde Silinmiş Cihazlar listesinden görüntülenebilir. Bir cihaz silinemezse sahibi olan kullanıcı da silinmez."
+    }
+    if ($Preview -and $Preview.RecycleBin -and -not $Preview.RecycleBin.Enabled) { $message += "`n`nDİKKAT: AD Geri Dönüşüm Kutusu kapalı; hiçbir kullanıcı ve cihaz silinmeyecek." }
     if ($recent -gt 0) { $message += "`n`nDİKKAT: Seçilenlerden $recent tanesi henüz 1 ayı doldurmadı veya devre dışı bırakılma tarihi bilinmiyor." }
     if (-not (Show-ConfirmDialog -Message $message -Title "Kullanıcı Sil ($($selected.Count))" -Warning)) { return }
     $script:State.ActionContext = @{ Simulate = [bool]$script:State.Options.WhatIf }
@@ -393,10 +442,11 @@ function Complete-DisabledUserRemoval {
     $failed = @($items | Where-Object { -not $_.Success })
     $succeeded = @($items | Where-Object { $_.Success })
     $simulated = [bool]$script:State.ActionContext.Simulate
-    $text = if ($simulated) { "Simülasyon: $($succeeded.Count) kullanıcı silinecekti; değişiklik yapılmadı." } else { "$($succeeded.Count) kullanıcı silindi" + $(if ($failed.Count -gt 0) { ", $($failed.Count) kullanıcı silinemedi: " + (($failed | ForEach-Object { "$($_.Step) ($($_.Message))" }) -join '; ') } else { '.' }) }
+    $text = if ($simulated) { "Simülasyon: $($succeeded.Count) kullanıcı silinecekti; değişiklik yapılmadı." } else { "$($succeeded.Count) kullanıcı silindi$(Format-RemovalSummary -Results $succeeded)" + $(if ($failed.Count -gt 0) { ", $($failed.Count) kullanıcı silinemedi: " + (($failed | ForEach-Object { "$($_.Step) ($($_.Message))" }) -join '; ') } else { '.' }) }
     Write-UiLog -Message $text -Level $(if ($failed.Count -gt 0) { 'Warning' } elseif ($simulated) { 'Info' } else { 'Success' })
     $script:Ui.txtDuSummary.Text = $text
     if ($simulated -or $succeeded.Count -eq 0) { return }
+    $script:State.DeletedDevices = $null
     $current = $script:State.CurrentData
     if ($current -and @($succeeded | ForEach-Object { $_.ObjectGuid }) -contains $current.Ad.ObjectGuid) {
         Write-UiLog -Message 'Ekranda açık olan kullanıcı silindi; gösterilen bilgiler artık geçerli değil.' -Level Warning

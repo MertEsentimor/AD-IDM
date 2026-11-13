@@ -468,6 +468,7 @@ function Start-MainWindow {
     $script:Xaml = Read-AppFile -RelativePath 'UI\MainWindow.xaml'
     $script:ConfirmXaml = Read-AppFile -RelativePath 'UI\Dialogs\Confirm.xaml'
     $script:OuPickerXaml = Read-AppFile -RelativePath 'UI\Dialogs\OuPicker.xaml'
+    $script:DeviceSecretXaml = Read-AppFile -RelativePath 'UI\Dialogs\DeviceSecret.xaml'
     $script:PasswordXaml = Read-AppFile -RelativePath 'UI\Dialogs\PasswordReset.xaml'
     $script:CredentialXaml = Read-AppFile -RelativePath 'UI\Dialogs\Credential.xaml'
     $script:NewUserXaml = Read-AppFile -RelativePath 'UI\Dialogs\NewUser.xaml'
