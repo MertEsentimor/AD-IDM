@@ -103,8 +103,8 @@ Assert-True ($lastLogonIndex -lt $passwordIndex -and $datesText.Contains('txtLas
 # ---- Ayarlar menüsü
 $settingsText = [System.IO.File]::ReadAllText((Join-Path -Path $projectRoot -ChildPath 'UI/Handlers/Settings.ps1'))
 $settingsTabs = @([regex]::Matches(([regex]::Match($shellText, '(?s)\$script:SettingsTabGroups = \[ordered\]@\{.*?\n\}').Value), "'(tabSet\w+)'") | ForEach-Object { $_.Groups[1].Value })
-Assert-True ($settingsTabs.Count -eq 7 -and @($settingsTabs | Where-Object { $_ -notin $namesInWindow }).Count -eq 0) "Ayarlarda 7 sekme gruplanır ($($settingsTabs.Count))"
-$expectedSettingsHeaders = 'Sunucu', 'Outsource Bilgilendirme', 'İzin Raporu', 'Servis', 'Telefon', 'Mesajlar', 'Şifre'
+Assert-True ($settingsTabs.Count -eq 8 -and @($settingsTabs | Where-Object { $_ -notin $namesInWindow }).Count -eq 0) "Ayarlarda 8 sekme gruplanır ($($settingsTabs.Count))"
+$expectedSettingsHeaders = 'Sunucu', 'Outsource Bilgilendirme', 'İzin Raporu', 'Servis', 'Telefon', 'Mesajlar', 'Şifre', 'Cihaz Eşleştirme'
 $settingsHeaders = @([regex]::Matches($windowText, 'x:Name="tabSet\w+" Header="([^"]+)"') | ForEach-Object { $_.Groups[1].Value })
 Assert-True (($settingsHeaders -join '|') -ceq ($expectedSettingsHeaders -join '|')) "Ayarlar başlıkları istenen sırada: $($settingsHeaders -join ', ')"
 foreach ($passwordField in 'PasswordLength', 'PasswordSymbols', 'AllowManualPassword') { Assert-True ($settingsText -match "@\('Password', 'Sms', '$passwordField'") "$passwordField Şifre sekmesinde" }

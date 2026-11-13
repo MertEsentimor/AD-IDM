@@ -11,6 +11,19 @@ function ConvertTo-PlainHashtable {
     if ($InputObject -is [System.Collections.IList] -and $InputObject -isnot [string]) { return , @($InputObject | ForEach-Object { ConvertTo-PlainHashtable -InputObject $_ }) }
     return $InputObject
 }
+function Get-DeviceNamePatternSetting {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $pattern = 'NB-{sam}'
+    if (Test-Path -LiteralPath $Path) {
+        $document = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        if ($document.PSObject.Properties['DeviceNamePattern']) { $pattern = [string]$document.DeviceNamePattern }
+    }
+    $problem = Test-DeviceNamePattern -Pattern $pattern
+    if ($problem) { return [pscustomobject]@{ Pattern = ''; Warning = "$problem Otomatik cihaz eşleştirme kapatıldı ($Path)." } }
+    return [pscustomobject]@{ Pattern = $pattern.Trim(); Warning = $null }
+}
 function Resolve-AppPath {
     [CmdletBinding()]
     [OutputType([string])]

@@ -24,7 +24,7 @@ $global:Sync = [hashtable]::Synchronized(@{
 $script:AppRoot = $temporaryFolder
 $script:Ui = @{}
 $script:Audit = @{ Operator = 'TEST\admin' }
-foreach ($relativePath in 'Core/WorkerBootstrap.ps1', 'Modules/AD/Search.ps1', 'Modules/AD/Devices.ps1', 'Modules/AD/DisabledUsers.ps1', 'Core/Audit.ps1') {
+foreach ($relativePath in 'Core/WorkerBootstrap.ps1', 'Modules/AD/Search.ps1', 'Modules/AD/Devices.ps1', 'Modules/AD/DisabledUsers.ps1', 'Core/Audit.ps1', 'Core/Config.ps1', 'UI/Handlers/Settings.ps1') {
     . (Join-Path -Path $projectRoot -ChildPath $relativePath)
 }
 $ErrorActionPreference = 'Stop'
@@ -220,6 +220,20 @@ Assert-True ($log -match 'device\.deleted\.secrets_view' -and $log -match 'NB-GG
 $script:DenyDeleted = $true
 Assert-True ((Get-ThrownMessage { Get-DeletedDeviceList }) -match 'Silinmiş nesneleri okuma yetkiniz yok') 'Yetki mesajı'
 $script:DenyDeleted = $false
+
+# ---- Ayar
+Assert-True ((Get-DeviceNamePreview -Pattern 'NB-{sam}' -SamAccountName 'ME9533') -eq 'ME9533 için: NB-ME9533, NB-ME9533-2') 'Önizleme'
+Assert-True ((Get-DeviceNamePreview -Pattern '' -SamAccountName 'ME9533') -eq 'Otomatik eşleştirme kapalı.') 'Boş önizleme'
+Assert-True ((Get-DeviceNamePreview -Pattern 'NB-' -SamAccountName 'ME9533') -match '\{sam\}') 'Geçersiz önizleme'
+$appConfig = Join-Path -Path $temporaryFolder -ChildPath 'app-config.json'
+Assert-True ((Get-DeviceNamePatternSetting -Path $appConfig).Pattern -eq 'NB-{sam}') 'Dosya yoksa varsayılan kural'
+[System.IO.File]::WriteAllText($appConfig, '{ "DeviceNamePattern": "{sam}-PC" }')
+Assert-True ((Get-DeviceNamePatternSetting -Path $appConfig).Pattern -eq '{sam}-PC') 'Dosyadaki kural okunur'
+[System.IO.File]::WriteAllText($appConfig, '{ "DeviceNamePattern": "" }')
+Assert-True ((Get-DeviceNamePatternSetting -Path $appConfig).Pattern -eq '') 'Boş kural kapalı kalır'
+[System.IO.File]::WriteAllText($appConfig, '{ "DeviceNamePattern": "NB-*" }')
+$badSetting = Get-DeviceNamePatternSetting -Path $appConfig
+Assert-True ($badSetting.Pattern -eq '' -and $badSetting.Warning -match '\{sam\}') 'Geçersiz kural kapatılır ve uyarılır'
 
 Remove-Item -LiteralPath $temporaryFolder -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''

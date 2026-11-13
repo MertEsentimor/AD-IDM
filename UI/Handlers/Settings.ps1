@@ -42,7 +42,8 @@
         @('SmsPhone', 'Sms', 'NationalLength', 'Int', 'Ulusal numara uzunluğu', '', $null),
         @('Password', 'Sms', 'PasswordLength', 'Int', 'Üretilen parola uzunluğu', '10 ile 64 arası.', $null),
         @('Password', 'Sms', 'PasswordSymbols', 'Text', 'Parolada kullanılacak semboller', '', $null),
-        @('Password', 'Sms', 'AllowManualPassword', 'Bool', 'Elle parola girişine izin ver', '', $null)
+        @('Password', 'Sms', 'AllowManualPassword', 'Bool', 'Elle parola girişine izin ver', '', $null),
+        @('Devices', 'App', 'DeviceNamePattern', 'Text', 'Cihaz ad kuralı', '{sam} = kullanıcı adı. Ör. NB-{sam} hem NB-ME9533 hem NB-ME9533-2 ile eşleşir. Boş: otomatik eşleştirme kapalı. Elle bağlanan cihazlar (managedBy) her zaman eşleşir.', $null)
     ) | ForEach-Object { [pscustomobject]@{ Tab = $_[0]; File = $_[1]; Path = $_[2]; Type = $_[3]; Label = $_[4]; Hint = $_[5]; Choices = $_[6] } }
 }
 function Read-SettingsDocument {
@@ -87,7 +88,7 @@ function Get-SettingsFormDocument {
     [OutputType([hashtable])]
     param()
     $state = $script:State.Settings
-    $docs = @{ Mail = ($state.Original.Mail | ConvertTo-Json -Depth 20 | ConvertFrom-Json); Sms = ($state.Original.Sms | ConvertTo-Json -Depth 20 | ConvertFrom-Json) }
+    $docs = @{ Mail = ($state.Original.Mail | ConvertTo-Json -Depth 20 | ConvertFrom-Json); Sms = ($state.Original.Sms | ConvertTo-Json -Depth 20 | ConvertFrom-Json); App = ($state.Original.App | ConvertTo-Json -Depth 20 | ConvertFrom-Json) }
     $errors = New-Object -TypeName 'System.Collections.Generic.List[string]'
     foreach ($field in $state.Fields) {
         $control = $state.Controls[$field.Path + '|' + $field.File]
@@ -119,7 +120,9 @@ function Get-SettingsFormDocument {
         $template = [string](Get-SettingsValue -Document $docs.Sms -Path $name)
         if ($template -and $template -notmatch '\{\{\s*Password\s*\}\}') { $errors.Add("SMS $name {{Password}} içermeli.") }
     }
-    return @{ Mail = $docs.Mail; Sms = $docs.Sms; Errors = $errors }
+    $devicePatternProblem = Test-DeviceNamePattern -Pattern ([string](Get-SettingsValue -Document $docs.App -Path 'DeviceNamePattern'))
+    if ($devicePatternProblem) { $errors.Add($devicePatternProblem) }
+    return @{ Mail = $docs.Mail; Sms = $docs.Sms; App = $docs.App; Errors = $errors }
 }
 function Save-SettingsForm {
     [CmdletBinding()]
@@ -132,6 +135,8 @@ function Save-SettingsForm {
     try {
         Save-SettingsDocument -Document $form.Mail -Path $script:MailConfigPath -Confirm:$false
         Save-SettingsDocument -Document $form.Sms -Path $script:SmsConfigPath -Confirm:$false
+        Save-SettingsDocument -Document $form.App -Path $script:AppConfigPath -Confirm:$false
+        $script:Sync.DeviceNamePattern = ([string](Get-SettingsValue -Document $form.App -Path 'DeviceNamePattern')).Trim()
         if (-not [string](Get-SettingsValue -Document $form.Mail -Path 'OutsourceMail.BodyFile') -and ([string]$c.txtSetBody.Text).Trim()) {
             Set-SettingsValue -Document $form.Mail -Path 'OutsourceMail.BodyFile' -Value 'Configs\outsource-mail.txt' -Confirm:$false
             $state.Controls['OutsourceMail.BodyFile|Mail'].Text = 'Configs\outsource-mail.txt'
@@ -143,10 +148,10 @@ function Save-SettingsForm {
             $text = ([string]$c.txtSetBody.Text) -replace "(?<!`r)`n", "`r`n"
             [System.IO.File]::WriteAllText($bodyFile, $text, (New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $true))
         }
-        $state.Original = @{ Mail = $form.Mail; Sms = $form.Sms }
+        $state.Original = @{ Mail = $form.Mail; Sms = $form.Sms; App = $form.App }
         $state.Dirty = $false
         $c.txtSetMessage.Text = "Kaydedildi ($((Get-Date).ToString('HH:mm:ss'))). Önceki sürümler .bak dosyası olarak saklandı."
-        [void](Write-AuditEvent -Action 'settings.change' -Result 'success' -Fields ([ordered]@{ category = 'settings'; message = "mail-config.json, sms-config.json$(if ($bodyFile) { ', ' + (Split-Path -Path $bodyFile -Leaf) })" }))
+        [void](Write-AuditEvent -Action 'settings.change' -Result 'success' -Fields ([ordered]@{ category = 'settings'; message = "mail-config.json, sms-config.json, app-config.json$(if ($bodyFile) { ', ' + (Split-Path -Path $bodyFile -Leaf) })" }))
         Write-UiLog -Message 'Ayarlar kaydedildi.' -Level Success
         return $true
     }
@@ -241,11 +246,23 @@ function Start-SettingsTestSms {
     }
     if (-not $started) { $c.txtSetMessage.Text = 'Başka bir işlem sürüyor; biraz sonra tekrar deneyin.' }
 }
+function Get-DeviceNamePreview {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowEmptyString()][string]$Pattern, [Parameter(Mandatory = $true)][string]$SamAccountName)
+    $Pattern = ([string]$Pattern).Trim()
+    if (-not $Pattern) { return 'Otomatik eşleştirme kapalı.' }
+    $problem = Test-DeviceNamePattern -Pattern $Pattern
+    if ($problem) { return $problem }
+    $name = $Pattern.Replace('{sam}', $SamAccountName)
+    return "$SamAccountName için: $name, $name-2"
+}
 function Initialize-SettingsPage {
     [CmdletBinding()]
     param()
     try {
-        $original = @{ Mail = (Read-SettingsDocument -Path $script:MailConfigPath); Sms = (Read-SettingsDocument -Path $script:SmsConfigPath) }
+        $original = @{ Mail = (Read-SettingsDocument -Path $script:MailConfigPath); Sms = (Read-SettingsDocument -Path $script:SmsConfigPath); App = (Read-SettingsDocument -Path $script:AppConfigPath) }
+        if (-not $original.App.PSObject.Properties['DeviceNamePattern']) { $original.App | Add-Member -NotePropertyName DeviceNamePattern -NotePropertyValue 'NB-{sam}' }
     }
     catch {
         $script:Ui.txtSetMessage.Text = "Ayar dosyaları okunamadı: $($_.Exception.Message). Dosyayı Not Defteri ile açıp JSON hatasını düzeltin."
@@ -255,11 +272,11 @@ function Initialize-SettingsPage {
     $fields = @(Get-SettingsFieldList)
     $script:State.Settings = @{ Window = $script:Window; Ui = $script:Ui; Fields = $fields; Controls = @{}; Original = $original; Dirty = $false }
     $c = $script:Ui
-    foreach ($panelName in 'pnlSetSmtp', 'pnlSetOutsource', 'pnlSetLeave', 'pnlSetSmsService', 'pnlSetSmsPhone', 'pnlSetSmsMessages', 'pnlSetPassword') { $c[$panelName].Children.Clear() }
+    foreach ($panelName in 'pnlSetSmtp', 'pnlSetOutsource', 'pnlSetLeave', 'pnlSetSmsService', 'pnlSetSmsPhone', 'pnlSetSmsMessages', 'pnlSetPassword', 'pnlSetDevices') { $c[$panelName].Children.Clear() }
         $state = $script:State.Settings
-        $c.txtSetInfo.Text = "Dosyalar: $script:MailConfigPath  |  $script:SmsConfigPath"
+        $c.txtSetInfo.Text = "Dosyalar: $script:MailConfigPath  |  $script:SmsConfigPath  |  $script:AppConfigPath"
         $markDirty = { if ($script:State.Settings) { $script:State.Settings.Dirty = $true } }
-        $panels = @{ Smtp = $c.pnlSetSmtp; Outsource = $c.pnlSetOutsource; Leave = $c.pnlSetLeave; SmsService = $c.pnlSetSmsService; SmsPhone = $c.pnlSetSmsPhone; SmsMessages = $c.pnlSetSmsMessages; Password = $c.pnlSetPassword }
+        $panels = @{ Smtp = $c.pnlSetSmtp; Outsource = $c.pnlSetOutsource; Leave = $c.pnlSetLeave; SmsService = $c.pnlSetSmsService; SmsPhone = $c.pnlSetSmsPhone; SmsMessages = $c.pnlSetSmsMessages; Devices = $c.pnlSetDevices; Password = $c.pnlSetPassword }
         $labelStyle = $script:Window.TryFindResource('FieldLabel')
         $hintStyle = $script:Window.TryFindResource('HintText')
         foreach ($field in $fields) {
@@ -312,6 +329,9 @@ function Initialize-SettingsPage {
             }
             $state.Controls[$field.Path + '|' + $field.File] = $control
         }
+        $patternBox = $state.Controls['DeviceNamePattern|App']
+        $c.txtSetDevicePreview.Text = Get-DeviceNamePreview -Pattern ([string]$patternBox.Text) -SamAccountName 'ME9533'
+        $patternBox.Add_TextChanged({ $script:Ui.txtSetDevicePreview.Text = Get-DeviceNamePreview -Pattern ([string]$this.Text) -SamAccountName 'ME9533' })
         $c.txtSetAttachments.Text = (@(Get-SettingsValue -Document $original.Mail -Path 'OutsourceMail.Attachments') | Where-Object { $_ }) -join "`r`n"
         $bodyFile = Resolve-AppPath -Path ([string](Get-SettingsValue -Document $original.Mail -Path 'OutsourceMail.BodyFile'))
         if (-not $bodyFile) { $bodyFile = Resolve-AppPath -Path 'Configs\outsource-mail.txt' }

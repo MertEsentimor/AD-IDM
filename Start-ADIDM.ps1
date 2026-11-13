@@ -120,6 +120,7 @@ function Read-AppFile {
 $script:ThemePreference = $Theme
 $script:LogPath = if ($LogPath) { $LogPath } else { Join-Path -Path $script:AppRoot -ChildPath ('Logs\AD-IDM_{0:yyyyMMdd}.log' -f (Get-Date)) }
 $script:SmsConfigPath = if ($SmsConfigPath) { $SmsConfigPath } else { Join-Path -Path $script:AppRoot -ChildPath 'Configs\sms-config.json' }
+$script:AppConfigPath = Join-Path -Path $script:AppRoot -ChildPath 'Configs\app-config.json'
 $script:MailConfigPath = if ($MailConfigPath) { $MailConfigPath } else { Join-Path -Path $script:AppRoot -ChildPath 'Configs\mail-config.json' }
 $script:ScriptFullPath = $PSCommandPath
 $script:ScriptFileName = Split-Path -Path $PSCommandPath -Leaf
@@ -132,7 +133,7 @@ $script:WorkerScripts = 'Core\WorkerBootstrap.ps1', 'Core\Notify.ps1', 'Modules\
 $script:Ui = @{}
 $script:Window = $null
 
-foreach ($relativePath in 'Core\Elevation.ps1', 'Core\Logging.ps1', 'Core\Audit.ps1', 'Core\Config.ps1', 'Core\Secrets.ps1', 'Core\Notify.ps1', 'Core\Runspace.ps1', 'Modules\Leave\LeaveTask.ps1') {
+foreach ($relativePath in 'Core\Elevation.ps1', 'Core\Logging.ps1', 'Core\Audit.ps1', 'Core\Config.ps1', 'Core\Secrets.ps1', 'Core\Notify.ps1', 'Core\Runspace.ps1', 'Modules\Leave\LeaveTask.ps1', 'Modules\AD\Devices.ps1') {
     . ([scriptblock]::Create((Read-AppFile -RelativePath $relativePath)))
 }
 $script:Sync.Pdc = if ($DomainController) { $DomainController } else { $null }
@@ -147,6 +148,15 @@ $script:Sync.PstExportReady = $false
 $script:Sync.PstModuleName = $null
 $script:Sync.DisabledUsersOu = $DisabledUsersOu
 $script:Sync.PreviousOuAttribute = $PreviousOuAttribute
+try {
+    $deviceSetting = Get-DeviceNamePatternSetting -Path $script:AppConfigPath
+    $script:Sync.DeviceNamePattern = $deviceSetting.Pattern
+    if ($deviceSetting.Warning) { Write-Warning $deviceSetting.Warning }
+}
+catch {
+    $script:Sync.DeviceNamePattern = ''
+    Write-Warning "app-config.json okunamadı, otomatik cihaz eşleştirme kapalı: $($_.Exception.Message)"
+}
 $script:Sync.LeaveAttribute = $LeaveAttribute
 $script:Sync.LegacyLeaveEndAttribute = if ($LegacyLeaveEndAttribute -eq 'none') { '' } else { $LegacyLeaveEndAttribute }
 Initialize-Audit -Path $(if ($AuditLogPath) { $AuditLogPath } else { Join-Path -Path $script:AppRoot -ChildPath 'Logs\ADExchangeUserManager-audit.log' }) -Format $AuditLogFormat -MaxSizeMB $AuditMaxSizeMB

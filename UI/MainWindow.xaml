@@ -1546,6 +1546,7 @@
                 <RadioButton x:Name="grpSetMail" GroupName="SettingsGroup" Style="{DynamicResource GroupTab}" Content="Mail" IsChecked="True"/>
                 <RadioButton x:Name="grpSetSms" GroupName="SettingsGroup" Style="{DynamicResource GroupTab}" Content="SMS"/>
                 <RadioButton x:Name="grpSetPassword" GroupName="SettingsGroup" Style="{DynamicResource GroupTab}" Content="Şifre"/>
+                <RadioButton x:Name="grpSetDevices" GroupName="SettingsGroup" Style="{DynamicResource GroupTab}" Content="Cihazlar"/>
             </StackPanel>
             <TabControl x:Name="tabSet">
             <TabItem x:Name="tabSetServer" Header="Sunucu">
@@ -1612,6 +1613,15 @@
             <TabItem x:Name="tabSetPassword" Header="Şifre">
                 <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,0,16,12">
                     <Border Style="{DynamicResource Section}"><StackPanel x:Name="pnlSetPassword"/></Border>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+            <TabItem x:Name="tabSetDevices" Header="Cihaz Eşleştirme">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,0,16,12">
+                    <Border Style="{DynamicResource Section}"><StackPanel>
+                        <StackPanel x:Name="pnlSetDevices"/>
+                        <TextBlock Text="Önizleme" Style="{DynamicResource FieldLabel}"/>
+                        <TextBlock x:Name="txtSetDevicePreview" Text="" Style="{DynamicResource HintText}" TextWrapping="Wrap"/>
+                    </StackPanel></Border>
                 </StackPanel></ScrollViewer>
             </TabItem>
             </TabControl>

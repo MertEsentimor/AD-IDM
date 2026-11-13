@@ -36,7 +36,7 @@ try {
     $referenced += @([regex]::Matches($shellText, "'(UI\\[^']+\.xaml)'") | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
     $missing = @($referenced | Where-Object { -not $table.ContainsKey($_) })
     Assert-True ($referenced.Count -ge 25 -and $missing.Count -eq 0) "Kodda istenen dosyalar gömülü ($($referenced.Count)): $($missing -join ', ')"
-    Assert-True (@(Get-ChildItem -LiteralPath (Join-Path -Path $outputFolder -ChildPath 'Configs') -Filter '*.template.*').Count -eq 3) 'Şablonlar çıktıya kopyalanır'
+    Assert-True (@(Get-ChildItem -LiteralPath (Join-Path -Path $outputFolder -ChildPath 'Configs') -Filter '*.template.*').Count -eq 4) 'Şablonlar çıktıya kopyalanır'
     Assert-True (@(Get-ChildItem -LiteralPath (Join-Path -Path $outputFolder -ChildPath 'Configs') -Filter '*.json' | Where-Object { $_.Name -notlike '*.template.json' }).Count -eq 0) 'Gerçek ayarlar çıktıya kopyalanmaz'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path -Path $outputFolder -ChildPath 'Secrets'))) 'Secrets çıktıya kopyalanmaz'
     Assert-True (Test-Path -LiteralPath (Join-Path -Path $outputFolder -ChildPath 'Assets/AD-IDM.ico')) 'Simge çıktıya kopyalanır'

@@ -104,6 +104,7 @@ $script:SettingsTabGroups = [ordered]@{
     grpSetMail     = 'tabSetServer', 'tabSetOutsource', 'tabSetLeaveReport'
     grpSetSms      = 'tabSetSmsService', 'tabSetSmsPhone', 'tabSetSmsMessages'
     grpSetPassword = @('tabSetPassword')
+    grpSetDevices  = @('tabSetDevices')
 }
 
 function Set-SettingsTabGroup {
