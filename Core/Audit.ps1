@@ -126,6 +126,7 @@ function Get-AuditTaskContext {
         'New-DirectoryUser' { 'user.create' }
         'Enable-UserMailbox' { 'mailbox.create' }
         'Remove-DisabledUser' { 'user.delete' }
+        'Get-DeletedDeviceSecret' { 'device.deleted.secrets_view' }
         'Set-DeviceOwner' { if ($Arguments.OwnerDn) { 'device.link' } else { 'device.unlink' } }
         'Connect-ExchangeEnvironment' { 'exchange.connect' }
         'Start-MailboxPstExport' { 'mailbox.pst.export' }
@@ -148,6 +149,7 @@ function Get-AuditTaskContext {
         $context.Target.target_user = [string]$Arguments.Attributes.SamAccountName
         $context.Target.target_dn = "CN=$([string]$Arguments.Attributes.Name),$([string]$Arguments.Path)"
     }
+    elseif ($Command -eq 'Get-DeletedDeviceSecret') { $context.Target.target_device = [string]$Arguments.DeviceName }
     elseif ($Command -notmatch 'Exchange|Replication|Remove-DisabledUser' -and $script:State.CurrentData) {
         $ad = $script:State.CurrentData.Ad
         $context.Target.target_user = [string]$ad.SamAccountName

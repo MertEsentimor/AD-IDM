@@ -173,3 +173,70 @@ function global:Find-DirectoryComputer {
             }
         })
 }
+function global:Invoke-DeletedObjectQuery {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][hashtable]$Parameters)
+    try { return @(Get-ADObject @Parameters -IncludeDeletedObjects -Server (Get-PdcEmulator) -ErrorAction Stop | Where-Object { $_ }) }
+    catch {
+        if ($_.Exception.Message -match 'Access is denied|Erişim engellendi|insufficient access') {
+            throw 'Silinmiş nesneleri okuma yetkiniz yok (Domain Admins veya Deleted Objects kabında okuma izni gerekir).'
+        }
+        throw
+    }
+}
+function global:Get-DeletedDeviceList {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+    Set-WorkerProgress -Percent 10 -Status 'Silinmiş cihazlar Geri Dönüşüm Kutusu''ndan okunuyor...'
+    $lifetime = (Get-RecycleBinState).LifetimeDays
+    $computers = Invoke-DeletedObjectQuery -Parameters @{
+        LDAPFilter = '(&(objectClass=computer)(isDeleted=TRUE))'
+        Properties = @('msDS-LastKnownRDN', 'lastKnownParent', 'whenChanged', 'managedBy', 'ms-Mcs-AdmPwdExpirationTime')
+    }
+    $keyCounts = @{}
+    foreach ($key in (Invoke-DeletedObjectQuery -Parameters @{ LDAPFilter = '(&(objectClass=msFVE-RecoveryInformation)(isDeleted=TRUE))'; Properties = @('lastKnownParent') })) {
+        $parent = [string]$key.lastKnownParent
+        $keyCounts[$parent] = 1 + [int]$keyCounts[$parent]
+    }
+    $now = Get-Date
+    $pattern = [string]$Sync.DeviceNamePattern
+    $items = foreach ($computer in $computers) {
+        $name = [string]$computer.'msDS-LastKnownRDN'
+        $deletedAt = [datetime]$computer.whenChanged
+        $owner = if ($computer.managedBy) { Get-DnCommonName -DistinguishedName ([string]$computer.managedBy) } else { ConvertFrom-DeviceName -Pattern $pattern -Name $name }
+        [pscustomobject]@{
+            Name              = $name
+            ObjectGuid        = $computer.ObjectGUID.ToString()
+            DistinguishedName = [string]$computer.DistinguishedName
+            LastKnownParent   = [string]$computer.lastKnownParent
+            DeletedAt         = $deletedAt
+            DaysLeft          = [int][math]::Max(0, [math]::Ceiling(($deletedAt.AddDays($lifetime) - $now).TotalDays))
+            Owner             = if ($owner) { $owner } else { '-' }
+            LapsPresent       = [bool]$computer.'ms-Mcs-AdmPwdExpirationTime'
+            BitLockerCount    = [int]$keyCounts[[string]$computer.DistinguishedName]
+        }
+    }
+    Set-WorkerProgress -Percent 100 -Status "$(@($items).Count) silinmiş cihaz okundu."
+    return @($items | Sort-Object -Property DeletedAt -Descending)
+}
+function global:Get-DeletedDeviceSecret {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)][string]$ObjectGuid,
+        [Parameter(Mandatory = $true)][string]$DeviceName
+    )
+    $computer = @(Invoke-DeletedObjectQuery -Parameters @{ Identity = $ObjectGuid; Properties = @('ms-Mcs-AdmPwd', 'ms-Mcs-AdmPwdExpirationTime') }) | Select-Object -First 1
+    if (-not $computer) { throw "Silinmiş cihaz bulunamadı: $DeviceName" }
+    $dn = [string]$computer.DistinguishedName
+    $keys = @(Invoke-DeletedObjectQuery -Parameters @{ LDAPFilter = '(&(objectClass=msFVE-RecoveryInformation)(isDeleted=TRUE))'; Properties = @('lastKnownParent', 'msFVE-RecoveryPassword') } |
+            Where-Object { [string]$_.lastKnownParent -eq $dn })
+    $expiry = [long]$computer.'ms-Mcs-AdmPwdExpirationTime'
+    return [pscustomobject]@{
+        DeviceName    = $DeviceName
+        LapsPassword  = if ($computer.'ms-Mcs-AdmPwd') { [string]$computer.'ms-Mcs-AdmPwd' } else { $null }
+        LapsExpiresAt = if ($expiry -gt 1) { [datetime]::FromFileTime($expiry) } else { $null }
+        BitLocker     = @($keys | ForEach-Object { [pscustomobject]@{ Name = [string]$_.Name; RecoveryPassword = [string]$_.'msFVE-RecoveryPassword' } })
+    }
+}

@@ -175,6 +175,52 @@ $script:NameComputers = $allComputers
 Assert-True ((Get-AuditTaskContext -Command 'Set-DeviceOwner' -Arguments @{ ComputerDn = 'x'; OwnerDn = 'y' }).Action -eq 'device.link') 'Bağlama denetim eylemi'
 Assert-True ((Get-AuditTaskContext -Command 'Set-DeviceOwner' -Arguments @{ ComputerDn = 'x'; OwnerDn = '' }).Action -eq 'device.unlink') 'Bağ kaldırma denetim eylemi'
 
+# ---- Silinmiş cihazlar
+$ggGuid = [guid]'22222222-2222-2222-2222-222222222222'
+$ggDn = "CN=NB-GG0043\0ADEL:$ggGuid,CN=Deleted Objects,DC=test,DC=local"
+$script:DeletedComputers = @(
+    [pscustomobject]@{ ObjectGUID = $ggGuid; DistinguishedName = $ggDn; 'msDS-LastKnownRDN' = 'NB-GG0043'; lastKnownParent = 'OU=C,DC=test,DC=local'
+        whenChanged = (Get-Date).AddDays(-10); managedBy = $null; 'ms-Mcs-AdmPwdExpirationTime' = 1; 'ms-Mcs-AdmPwd' = 'S3cret!'
+    },
+    [pscustomobject]@{ ObjectGUID = [guid]'33333333-3333-3333-3333-333333333333'; DistinguishedName = 'CN=PriviaPC\0ADEL:3,CN=Deleted Objects,DC=test,DC=local'; 'msDS-LastKnownRDN' = 'PriviaPC'
+        lastKnownParent = 'OU=C,DC=test,DC=local'; whenChanged = (Get-Date).AddDays(-30); managedBy = $null; 'ms-Mcs-AdmPwdExpirationTime' = $null; 'ms-Mcs-AdmPwd' = $null
+    }
+)
+$script:DeletedKeys = @(
+    [pscustomobject]@{ Name = '2025-12-29T15:17:24+03:00{DE55}'; lastKnownParent = $ggDn; 'msFVE-RecoveryPassword' = '111111-222222' },
+    [pscustomobject]@{ Name = 'other'; lastKnownParent = 'CN=X\0ADEL:9,CN=Deleted Objects,DC=test,DC=local'; 'msFVE-RecoveryPassword' = '999' }
+)
+$script:DenyDeleted = $false
+$script:SecretProperties = New-Object -TypeName System.Collections.ArrayList
+$script:BinGetADObject = ${function:Get-ADObject}
+function global:Get-ADObject {
+    param($Identity, $LDAPFilter, $Properties, $Server, $ErrorAction, $SearchBase, $SearchScope, [switch]$IncludeDeletedObjects)
+    if (-not $IncludeDeletedObjects) { return (& $script:BinGetADObject @PSBoundParameters) }
+    if ($script:DenyDeleted) { throw 'Access is denied' }
+    [void]$script:SecretProperties.Add((@($Properties) -join ','))
+    if ($LDAPFilter -match 'msFVE-RecoveryInformation') { return $script:DeletedKeys }
+    if ($Identity) { return ($script:DeletedComputers | Where-Object { $_.ObjectGUID.ToString() -eq [string]$Identity }) }
+    return $script:DeletedComputers
+}
+$list = @(Get-DeletedDeviceList)
+$gg = $list | Where-Object Name -eq 'NB-GG0043'
+Assert-True ($gg.DaysLeft -eq 170 -and $gg.Owner -eq 'GG0043' -and $gg.BitLockerCount -eq 1 -and $gg.LapsPresent) 'Liste alanları'
+Assert-True ($list[0].Name -eq 'NB-GG0043' -and $gg.LastKnownParent -eq 'OU=C,DC=test,DC=local') 'Liste silinme zamanına göre sıralı'
+Assert-True (-not ($list | Get-Member -Name LapsPassword) -and -not (($script:SecretProperties -join ';') -match 'ms-Mcs-AdmPwd(,|;|$)|msFVE-RecoveryPassword')) 'Listede parola istenmez'
+$script:SecretProperties.Clear()
+$s = Get-DeletedDeviceSecret -ObjectGuid $gg.ObjectGuid -DeviceName 'NB-GG0043'
+Assert-True ($s.LapsPassword -eq 'S3cret!' -and @($s.BitLocker).Count -eq 1 -and $s.BitLocker[0].RecoveryPassword -eq '111111-222222') 'lastKnownParent ile BitLocker bulunur'
+$p = Get-DeletedDeviceSecret -ObjectGuid ($list | Where-Object Name -eq 'PriviaPC').ObjectGuid -DeviceName 'PriviaPC'
+Assert-True ($null -eq $p.LapsPassword -and @($p.BitLocker).Count -eq 0) 'Sırsız silinmiş cihaz hata vermez'
+Assert-True (-not $s.PSObject.Properties['Step']) 'Sır sonucu denetime düşmez'
+$secretArguments = @{ ObjectGuid = $gg.ObjectGuid; DeviceName = 'NB-GG0043' }
+Write-AuditTaskResult -Context (Get-AuditTaskContext -Command 'Get-DeletedDeviceSecret' -Arguments $secretArguments) -Result $s
+$log = Get-Content -LiteralPath $auditPath -Raw
+Assert-True ($log -match 'device\.deleted\.secrets_view' -and $log -match 'NB-GG0043' -and $log -notmatch 'S3cret|111111') 'Görüntüleme denetlenir, değer yazılmaz'
+$script:DenyDeleted = $true
+Assert-True ((Get-ThrownMessage { Get-DeletedDeviceList }) -match 'Silinmiş nesneleri okuma yetkiniz yok') 'Yetki mesajı'
+$script:DenyDeleted = $false
+
 Remove-Item -LiteralPath $temporaryFolder -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
 if ($script:FailureCount -gt 0) {
