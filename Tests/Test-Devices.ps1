@@ -153,6 +153,28 @@ $log = Get-Content -LiteralPath $auditPath -Raw
 Assert-True ((@($log -split "`n" | Where-Object { $_ -match 'device\.delete' })).Count -eq 1 -and $log -match 'device_guid' -and $log -match 'owner_sam="ME9533"') 'Cihaz başına denetim kaydı'
 Assert-True ($log -notmatch 'msFVE|AdmPwd') 'Denetimde sır alanı yok'
 
+# ---- Elle bağlama
+function global:Set-ADComputer {
+    param($Identity, [hashtable]$Replace, $Clear, $Server, $ErrorAction)
+    if ($Replace) { [void]$script:Calls.Add("Replace managedBy=$($Replace.managedBy)") }
+    if ($Clear) { [void]$script:Calls.Add("Clear $Clear") }
+}
+$script:Calls.Clear()
+$link = Set-DeviceOwner -ComputerDn 'CN=PC1,OU=C,DC=test,DC=local' -OwnerDn 'CN=Mert,OU=U,DC=test,DC=local' -Confirm:$false
+Assert-True ($script:Calls[-1] -eq 'Replace managedBy=CN=Mert,OU=U,DC=test,DC=local' -and $link.Success) 'Bağlama managedBy yazar'
+[void](Set-DeviceOwner -ComputerDn 'CN=PC1,OU=C,DC=test,DC=local' -OwnerDn '' -Confirm:$false)
+Assert-True ($script:Calls[-1] -eq 'Clear managedBy') 'Bağ kaldırma temizler'
+$script:Calls.Clear()
+$simulatedLink = Set-DeviceOwner -ComputerDn 'CN=PC1,OU=C,DC=test,DC=local' -OwnerDn 'x' -Confirm:$false -WhatIf
+Assert-True ($script:Calls.Count -eq 0 -and $simulatedLink.Success) 'Simülasyon yazmaz'
+$script:NameComputers = @((New-FakeComputer -Name 'a*(1' -ManagedBy 'CN=Ali Veli,OU=U,DC=test,DC=local'))
+$foundComputers = @(Find-DirectoryComputer -Query 'a*(')
+Assert-True ($script:Filters[-1] -eq '(&(objectClass=computer)(name=a\2a\28*))') 'Arama kaçışlanır'
+Assert-True ($foundComputers[0].ManagedByName -eq 'Ali Veli' -and $foundComputers[0].DistinguishedName) 'Arama sonucu sahibi gösterir'
+$script:NameComputers = $allComputers
+Assert-True ((Get-AuditTaskContext -Command 'Set-DeviceOwner' -Arguments @{ ComputerDn = 'x'; OwnerDn = 'y' }).Action -eq 'device.link') 'Bağlama denetim eylemi'
+Assert-True ((Get-AuditTaskContext -Command 'Set-DeviceOwner' -Arguments @{ ComputerDn = 'x'; OwnerDn = '' }).Action -eq 'device.unlink') 'Bağ kaldırma denetim eylemi'
+
 Remove-Item -LiteralPath $temporaryFolder -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
 if ($script:FailureCount -gt 0) {

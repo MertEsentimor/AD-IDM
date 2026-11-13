@@ -126,6 +126,7 @@ function Get-AuditTaskContext {
         'New-DirectoryUser' { 'user.create' }
         'Enable-UserMailbox' { 'mailbox.create' }
         'Remove-DisabledUser' { 'user.delete' }
+        'Set-DeviceOwner' { if ($Arguments.OwnerDn) { 'device.link' } else { 'device.unlink' } }
         'Connect-ExchangeEnvironment' { 'exchange.connect' }
         'Start-MailboxPstExport' { 'mailbox.pst.export' }
         'Complete-MailboxPstExport' { if ($Arguments.Action -eq 'Remove') { 'mailbox.pst.remove_mailbox' } else { 'mailbox.pst.clear_request' } }

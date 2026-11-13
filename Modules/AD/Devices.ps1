@@ -131,3 +131,45 @@ function global:Get-RemovalDevicePreview {
     }
     return $preview
 }
+function global:Set-DeviceOwner {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)][string]$ComputerDn,
+        [Parameter()][AllowEmptyString()][string]$OwnerDn
+    )
+    $server = Get-PdcEmulator
+    $operation = if ($OwnerDn) { "Set-ADComputer -Replace managedBy=$OwnerDn" } else { 'Set-ADComputer -Clear managedBy' }
+    $result = [ordered]@{ Step = Get-DnCommonName -DistinguishedName $ComputerDn; Success = $false; Message = '' }
+    try {
+        if ($WhatIfPreference) {
+            Write-WorkerLog -Message "[WhatIf] $operation ($ComputerDn)" -Level Warning
+            $result.Message = 'simüle edildi'
+        }
+        elseif ($PSCmdlet.ShouldProcess($ComputerDn, $operation)) {
+            if ($OwnerDn) { Set-ADComputer -Identity $ComputerDn -Replace @{ managedBy = $OwnerDn } -Server $server -ErrorAction Stop }
+            else { Set-ADComputer -Identity $ComputerDn -Clear managedBy -Server $server -ErrorAction Stop }
+            $result.Message = if ($OwnerDn) { 'bağlandı' } else { 'bağ kaldırıldı' }
+            Write-WorkerLog -Message "$operation ($ComputerDn)" -Level Success
+        }
+        $result.Success = $true
+    }
+    catch {
+        $result.Message = $_.Exception.Message
+        Write-WorkerLog -Message "Cihaz sahibi değiştirilemedi ($ComputerDn): $($result.Message)" -Level Error
+    }
+    return [pscustomobject]$result
+}
+function global:Find-DirectoryComputer {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory = $true)][string]$Query)
+    $filter = '(&(objectClass=computer)(name={0}*))' -f (ConvertTo-LdapFilterValue -Value $Query.Trim())
+    $computers = @(Get-ADComputer -LDAPFilter $filter -Properties managedBy -ResultSetSize 50 -Server (Get-PdcEmulator) -ErrorAction Stop)
+    return @($computers | Where-Object { $_ } | Sort-Object -Property Name | ForEach-Object {
+            [pscustomobject]@{
+                Name = [string]$_.Name; DistinguishedName = [string]$_.DistinguishedName
+                ManagedBy = [string]$_.managedBy; ManagedByName = if ($_.managedBy) { Get-DnCommonName -DistinguishedName ([string]$_.managedBy) } else { '' }
+            }
+        })
+}
