@@ -113,3 +113,21 @@ function global:Get-RecycleBinState {
     elseif ([int]$service.tombstoneLifetime -gt 0) { $days = [int]$service.tombstoneLifetime }
     return [pscustomobject]@{ Enabled = (@($feature.EnabledScopes | Where-Object { $_ }).Count -gt 0); LifetimeDays = $days }
 }
+function global:Get-RemovalDevicePreview {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory = $true)][string[]]$ObjectGuid)
+    $server = Get-PdcEmulator
+    $preview = @{}
+    foreach ($guid in $ObjectGuid) {
+        try {
+            $user = Get-ADUser -Identity $guid -Server $server -ErrorAction Stop
+            $preview[$guid] = @(Get-UserDevice -SamAccountName ([string]$user.SamAccountName) -DistinguishedName ([string]$user.DistinguishedName) -Server $server)
+        }
+        catch {
+            $preview[$guid] = @()
+            Write-WorkerLog -Message "Cihazlar okunamadı ($guid): $($_.Exception.Message)" -Level Warning
+        }
+    }
+    return $preview
+}

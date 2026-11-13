@@ -109,6 +109,50 @@ Assert-True (-not (Get-RecycleBinState).Enabled) 'Kapalı algılanır'
 $script:BinScopes = @('DC=test,DC=local')
 $script:Lifetime = @{ 'msDS-deletedObjectLifetime' = 180; tombstoneLifetime = $null }
 
+# ---- Silme
+$script:DisabledDn = 'CN=Mert,OU=DisabledUsers,DC=test,DC=local'
+function global:Get-ADUser { param($Identity, $Server, $Properties, $ErrorAction) [pscustomobject]@{ Enabled = $false; SamAccountName = 'ME9533'; DistinguishedName = $script:DisabledDn; ObjectGUID = [guid]'11111111-1111-1111-1111-111111111111' } }
+$script:FailOn = $null
+function global:Remove-ADObject {
+    param($Identity, [switch]$Recursive, $Server, $Confirm, $ErrorAction)
+    if ($script:FailOn -and ([string]$Identity).StartsWith($script:FailOn)) { throw 'Access is denied' }
+    [void]$script:Calls.Add([string]$Identity)
+}
+$allComputers = $script:NameComputers
+$script:Calls.Clear()
+$r = @(Remove-DisabledUser -ObjectGuid 'g' -Confirm:$false)
+Assert-True ($script:Calls[0] -like 'CN=NB-ME9533,*' -and $script:Calls[-1] -eq $script:DisabledDn -and $r[0].Success) 'Önce cihazlar sonra kullanıcı'
+Assert-True (@(@($r[0].Devices | Where-Object Skipped).Name) -contains 'NB-ME9533-2' -and -not ($script:Calls -like 'CN=NB-ME9533-2,*')) 'Çakışmalı cihaz atlanır'
+Assert-True ((@($r[0].Devices | Where-Object Name -eq 'NB-ME9533-2').Conflict) -match 'Other') 'Silme sonucunda çakışma metni'
+$deleteResult = $r
+$script:Calls.Clear(); $script:FailOn = 'CN=NB-ME9533,'
+$r = @(Remove-DisabledUser -ObjectGuid 'g' -Confirm:$false)
+Assert-True (-not $r[0].Success -and $r[0].Message -match 'NB-ME9533' -and $script:Calls -notcontains $script:DisabledDn) 'Cihaz silinemezse kullanıcı silinmez'
+$script:Calls.Clear(); $script:FailOn = $null; $script:BinScopes = @()
+$r = @(Remove-DisabledUser -ObjectGuid 'g' -Confirm:$false)
+Assert-True (-not $r[0].Success -and $r[0].Message -match 'Geri Dönüşüm' -and $script:Calls.Count -eq 0) 'Geri Dönüşüm Kutusu kapalıyken hiçbir şey silinmez'
+$script:BinScopes = @('DC=test,DC=local')
+$script:Calls.Clear()
+$r = @(Remove-DisabledUser -ObjectGuid 'g' -Confirm:$false -WhatIf)
+Assert-True ($r[0].Success -and $script:Calls.Count -eq 0 -and @($r[0].Devices).Count -ge 1) 'Simülasyon cihaz silmez'
+$script:NameComputers = @()
+$r = @(Remove-DisabledUser -ObjectGuid 'g' -Confirm:$false)
+Assert-True ($r[0].Success -and @($r[0].Devices).Count -eq 0 -and $script:Calls -contains $script:DisabledDn) 'Cihazsız kullanıcı eskisi gibi silinir'
+$script:NameComputers = $allComputers
+$script:Calls.Clear(); $global:Sync.DeviceNamePattern = 'XX-{sam}'
+[void](Remove-DisabledUser -ObjectGuid 'g' -Confirm:$false)
+Assert-True (-not ($script:Calls -like 'CN=NB-ME9533*')) 'Silmede cihazlar yeniden çözülür'
+$global:Sync.DeviceNamePattern = 'NB-{sam}'
+$preview = Get-RemovalDevicePreview -ObjectGuid 'g'
+Assert-True (@($preview['g']).Count -eq 2) 'Onay önizlemesi cihazları döner'
+
+$auditPath = Join-Path -Path $temporaryFolder -ChildPath 'audit.log'
+Initialize-Audit -Path $auditPath
+Write-AuditTaskResult -Context (Get-AuditTaskContext -Command 'Remove-DisabledUser' -Arguments @{ ObjectGuid = @('g') }) -Result $deleteResult
+$log = Get-Content -LiteralPath $auditPath -Raw
+Assert-True ((@($log -split "`n" | Where-Object { $_ -match 'device\.delete' })).Count -eq 1 -and $log -match 'device_guid' -and $log -match 'owner_sam="ME9533"') 'Cihaz başına denetim kaydı'
+Assert-True ($log -notmatch 'msFVE|AdmPwd') 'Denetimde sır alanı yok'
+
 Remove-Item -LiteralPath $temporaryFolder -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
 if ($script:FailureCount -gt 0) {

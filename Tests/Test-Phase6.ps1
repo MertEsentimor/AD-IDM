@@ -137,6 +137,8 @@ Assert-True ($errors.Count -eq 0 -and @($warnings | Where-Object { $_ -match 'Ex
 $script:DisabledUser = [pscustomobject]@{ Enabled = $false; SamAccountName = 'ayse'; DistinguishedName = 'CN=Ayse,OU=DisabledUsers,DC=test,DC=local' }
 function global:Get-ADUser { param($Identity, $Server, $ErrorAction) $script:DisabledUser }
 function global:Remove-ADObject { param($Identity, [switch]$Recursive, $Server, $Confirm, $ErrorAction) [void]$script:Calls.Add('Remove-ADObject') }
+function global:Get-UserDevice { param($SamAccountName, $DistinguishedName, $Server) @() }
+function global:Get-RecycleBinState { param($Server) [pscustomobject]@{ Enabled = $true; LifetimeDays = 180 } }
 $script:Calls.Clear()
 $script:DisabledUser.Enabled = $true
 $enabledResult = @(Remove-DisabledUser -ObjectGuid 'g' -Confirm:$false)

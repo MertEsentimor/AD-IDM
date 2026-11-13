@@ -216,5 +216,13 @@ function Write-AuditTaskResult {
         $fields.message = [string]$item.Message
         $action = if ($item.Step -eq 'SMS gönderimi') { 'password.sms' } else { $Context.Action }
         [void](Write-AuditEvent -Action $action -Result (& $outcome ([bool]$item.Success)) -Fields $fields)
+        foreach ($device in @($item.PSObject.Properties['Devices'] | ForEach-Object { $_.Value } | Where-Object { $_ -and -not $_.Skipped })) {
+            $deviceFields = [ordered]@{
+                device_name = [string]$device.Name; device_dn = [string]$device.DistinguishedName; device_guid = [string]$device.ObjectGuid
+                owner_sam = [string]$item.OwnerSam; match_source = [string]$device.Source
+                bitlocker_count = [int]$device.BitLockerCount; laps_present = [bool]$device.LapsPresent; message = [string]$device.Message
+            }
+            [void](Write-AuditEvent -Action 'device.delete' -Result (& $outcome ([bool]$device.Success)) -Fields $deviceFields)
+        }
     }
 }

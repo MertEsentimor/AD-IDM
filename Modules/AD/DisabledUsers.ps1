@@ -117,17 +117,51 @@ function global:Remove-DisabledUser {
     param([Parameter(Mandatory = $true)][string[]]$ObjectGuid)
     $server = Get-PdcEmulator
     $ou = Get-DisabledUsersOu
+    $recycleBin = $null
     $index = 0
     foreach ($guid in $ObjectGuid) {
         $index++
-        $result = [ordered]@{ ObjectGuid = $guid; Step = $guid; Success = $false; Message = '' }
+        $result = [ordered]@{ ObjectGuid = $guid; Step = $guid; OwnerSam = ''; Success = $false; Message = ''; Devices = @() }
         try {
             $user = Get-ADUser -Identity $guid -Server $server -ErrorAction Stop
             $dn = [string]$user.DistinguishedName
             $result.Step = [string]$user.SamAccountName
+            $result.OwnerSam = [string]$user.SamAccountName
             Set-WorkerProgress -Percent ([int]($index / $ObjectGuid.Count * 100)) -Status "Kullanıcı siliniyor ($index/$($ObjectGuid.Count)): $($user.SamAccountName)"
             if ($user.Enabled) { throw 'Hesap etkin; yalnızca devre dışı hesaplar silinebilir.' }
             if (-not $dn.EndsWith(",$ou", [System.StringComparison]::OrdinalIgnoreCase)) { throw "Kullanıcı $ou altında değil." }
+            if (-not $recycleBin) { $recycleBin = Get-RecycleBinState -Server $server }
+            if (-not $recycleBin.Enabled) { throw 'AD Geri Dönüşüm Kutusu kapalı; kullanıcı ve cihazları silinmedi.' }
+            # Onay penceresindeki liste bayatlamış olabilir; cihazlar silmeden hemen önce yeniden çözülür.
+            $devices = @(Get-UserDevice -SamAccountName ([string]$user.SamAccountName) -DistinguishedName $dn -Server $server)
+            $deviceResults = foreach ($device in $devices) {
+                $entry = [ordered]@{
+                    Name = $device.Name; DistinguishedName = $device.DistinguishedName; ObjectGuid = $device.ObjectGuid; Source = $device.Source
+                    BitLockerCount = $device.BitLockerCount; LapsPresent = $device.LapsPresent; Conflict = $device.Conflict
+                    Success = $false; Skipped = [bool]$device.Conflict; Message = if ($device.Conflict) { "atlandı: $($device.Conflict)" } else { '' }
+                }
+                if (-not $entry.Skipped) {
+                    try {
+                        if ($WhatIfPreference) {
+                            Write-WorkerLog -Message "[WhatIf] Remove-ADObject -Identity '$($device.DistinguishedName)' -Recursive -Server $server" -Level Warning
+                            $entry.Message = 'simüle edildi'
+                        }
+                        else {
+                            Remove-ADObject -Identity $device.DistinguishedName -Recursive -Server $server -Confirm:$false -ErrorAction Stop
+                            $entry.Message = 'silindi'
+                            Write-WorkerLog -Message "Cihaz silindi: $($device.DistinguishedName) (GUID: $($device.ObjectGuid), PDC: $server)" -Level Success
+                        }
+                        $entry.Success = $true
+                    }
+                    catch { $entry.Message = $_.Exception.Message }
+                }
+                [pscustomobject]$entry
+            }
+            $result.Devices = @($deviceResults)
+            $failedDevices = @($result.Devices | Where-Object { -not $_.Skipped -and -not $_.Success })
+            if ($failedDevices.Count -gt 0) {
+                throw ('Cihaz silinemedi: ' + (($failedDevices | ForEach-Object { "$($_.Name) ($($_.Message))" }) -join '; ') + '; kullanıcı silinmedi.')
+            }
             if ($WhatIfPreference) {
                 Write-WorkerLog -Message "[WhatIf] Remove-ADObject -Identity '$dn' -Recursive -Server $server" -Level Warning
                 $result.Success = $true
