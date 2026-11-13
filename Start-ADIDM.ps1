@@ -128,7 +128,7 @@ $script:LeaveTaskArgs = @(foreach ($name in 'DomainController', 'LeaveAttribute'
     })
 $script:StartupExchangeMode = $ExchangeMode
 $script:StartupExchangeServer = $ExchangeServer
-$script:WorkerScripts = 'Core\WorkerBootstrap.ps1', 'Core\Notify.ps1', 'Modules\AD\Search.ps1', 'Modules\AD\Users.ps1', 'Modules\AD\Groups.ps1', 'Modules\Leave\LeaveParser.ps1', 'Modules\Exchange\Session.ps1', 'Modules\Exchange\Mailbox.ps1', 'Modules\Exchange\PstExport.ps1', 'Modules\AD\DisabledUsers.ps1', 'Modules\AD\Reports.ps1', 'Modules\Leave\LeaveEngine.ps1', 'Modules\Workflows\Provision.ps1'
+$script:WorkerScripts = 'Core\WorkerBootstrap.ps1', 'Core\Notify.ps1', 'Modules\AD\Search.ps1', 'Modules\AD\Users.ps1', 'Modules\AD\Groups.ps1', 'Modules\Leave\LeaveParser.ps1', 'Modules\Exchange\Session.ps1', 'Modules\Exchange\Mailbox.ps1', 'Modules\Exchange\PstExport.ps1', 'Modules\AD\Devices.ps1', 'Modules\AD\DisabledUsers.ps1', 'Modules\AD\Reports.ps1', 'Modules\Leave\LeaveEngine.ps1', 'Modules\Workflows\Provision.ps1'
 $script:Ui = @{}
 $script:Window = $null
 
