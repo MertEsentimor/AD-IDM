@@ -42,6 +42,7 @@ $script:State = @{
     OriginalCas = $null; OriginalSmtp = @(); OriginalPolicy = $null; CurrentMove = $null; MonitoredMoves = @{}; MailboxDatabases = @(); DbPicker = $null; LastExchangeUser = $null; NewUserDialog = $null; NewUserDraft = $null; NewUserDatabases = @()
     PstExports = @{}; PstScanned = $false; PstAttempts = @{}; PstActionAlias = $null; DisabledList = @(); DisabledOu = ''; DisabledReplicate = $false
     LeaveEdit = New-Object -TypeName 'System.Collections.Generic.List[object]'; LeaveNowCandidate = ''; LeaveEditTarget = $null; LeaveList = @(); LeaveTask = $null; LeaveApplyExecute = $false; BulkLeave = $null; Report = $null; Settings = $null; ActiveNav = 'navHome'; Dashboard = $null; ReturningToSettings = $false
+    DevicesPage = @{ Ou = @(); Subtree = $true; Items = $null; OwnerDn = '' }
 }
 $script:FieldMap = [ordered]@{
     GivenName         = @{ Control = 'txtGivenName'; Ldap = 'givenName'; Label = 'Ad (First Name)'; Tab = 'tabGeneral' }
@@ -93,7 +94,7 @@ $script:NewUserFieldMap = [ordered]@{
 $script:NoPolicyText = '(Yok)'
 $script:AutoDatabaseText = '(Otomatik: Exchange uygun veritabanını seçsin)'
 $script:CredDialog = $null
-$script:Pages = @{ navHome = 'pageHome'; navUsers = 'pageUsers'; navLeave = 'pageLeave'; navPst = 'pagePst'; navDisabled = 'pageDisabled'; navReports = 'pageReports'; navSettings = 'pageSettings' }
+$script:Pages = @{ navHome = 'pageHome'; navUsers = 'pageUsers'; navLeave = 'pageLeave'; navPst = 'pagePst'; navDevices = 'pageDevices'; navDisabled = 'pageDisabled'; navReports = 'pageReports'; navSettings = 'pageSettings' }
 $script:TabGroups = [ordered]@{
     grpIdentity = 'tabGeneral', 'tabAccount', 'tabGroups'
     grpLeave    = @('tabLeave')
@@ -135,6 +136,7 @@ function Set-ActivePage {
     switch ($NavName) {
         'navHome' { if (-not $script:State.Dashboard -or ((Get-Date) - $script:State.Dashboard.At).TotalMinutes -ge 5) { Start-DashboardLoad } }
         'navPst' { Start-PstPoll -Force; Update-PstExportView }
+        'navDevices' { Initialize-DevicesPage }
         'navDisabled' { Start-DisabledUserLoad }
         'navLeave' { Start-LeaveScheduleLoad }
         'navReports' {
@@ -299,6 +301,7 @@ function Register-ShellEvent {
     $ui.lstLv.Add_MouseDoubleClick({ Invoke-UiAction { Open-SelectedLeaveUser } })
     Register-SettingsPageEvent
     Register-DeviceEvent
+    Register-DevicesPageEvent
     foreach ($groupName in $script:SettingsTabGroups.Keys) {
         $ui[$groupName].Add_Checked({ param($sender, $e) Invoke-UiAction { Set-SettingsTabGroup -GroupName $sender.Name } })
     }

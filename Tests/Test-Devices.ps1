@@ -24,12 +24,17 @@ $global:Sync = [hashtable]::Synchronized(@{
 $script:AppRoot = $temporaryFolder
 $script:Ui = @{}
 $script:Audit = @{ Operator = 'TEST\admin' }
-foreach ($relativePath in 'Core/WorkerBootstrap.ps1', 'Modules/AD/Search.ps1', 'Modules/AD/Devices.ps1', 'Modules/AD/DisabledUsers.ps1', 'Core/Audit.ps1', 'Core/Config.ps1', 'UI/Handlers/Settings.ps1', 'UI/Handlers/Offboarding.ps1') {
+foreach ($relativePath in 'Core/WorkerBootstrap.ps1', 'Modules/AD/Search.ps1', 'Modules/AD/Devices.ps1', 'Modules/AD/DisabledUsers.ps1', 'Core/Audit.ps1', 'Core/Config.ps1', 'UI/Handlers/Settings.ps1', 'UI/Handlers/Offboarding.ps1', 'UI/Handlers/DevicesPage.ps1') {
     . (Join-Path -Path $projectRoot -ChildPath $relativePath)
 }
 $ErrorActionPreference = 'Stop'
 $script:Calls = New-Object -TypeName System.Collections.ArrayList
 $script:Filters = New-Object -TypeName System.Collections.ArrayList
+
+# ---- Cihazlar sayfası filtresi
+Assert-True (Test-DeviceAttentionFilter -Item ([pscustomobject]@{ NeedsAttention = $false }) -OnlyAttention $false) 'Filtre kapalı: hepsi görünür'
+Assert-True (-not (Test-DeviceAttentionFilter -Item ([pscustomobject]@{ NeedsAttention = $false }) -OnlyAttention $true)) 'Filtre açık: sorunsuz gizlenir'
+Assert-True (Test-DeviceAttentionFilter -Item ([pscustomobject]@{ NeedsAttention = $true }) -OnlyAttention $true) 'Filtre açık: uyarılı görünür'
 
 # ---- Ad kuralı
 Assert-True ((Test-DeviceNameMatch -Pattern 'NB-{sam}' -SamAccountName 'ME9533' -Name 'NB-ME9533')) 'NB-ME9533 eşleşir'
