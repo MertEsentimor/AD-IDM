@@ -50,6 +50,7 @@
                     <RadioButton x:Name="navUsers" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE716;" Content="Kullanıcılar"/>
                     <RadioButton x:Name="navLeave" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE787;" Content="İzin Planı"/>
                     <RadioButton x:Name="navPst" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE896;" Content="PST"/>
+                    <RadioButton x:Name="navDevices" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE7F8;" Content="Cihazlar"/>
                     <RadioButton x:Name="navDisabled" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE8F8;" Content="Devre Dışı"/>
                     <RadioButton x:Name="navReports" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE9F9;" Content="Raporlar"/>
                     <RadioButton x:Name="navSettings" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE713;" Content="Ayarlar"/>
@@ -1578,6 +1579,94 @@
             </Border>
         </DockPanel>
         </Grid>
+    </DockPanel>
+                <DockPanel x:Name="pageDevices" Visibility="Collapsed">
+        <DockPanel DockPanel.Dock="Top" Margin="24,20,24,12">
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="Cihazlar" Style="{DynamicResource TitleText}"/>
+                <TextBlock Text="OU'lardaki bilgisayarları listeleyin, sahip atayın ve BitLocker / LAPS parolalarını görüntüleyin." Style="{DynamicResource SubtitleText}" Margin="0,2,0,0"/>
+            </StackPanel>
+        </DockPanel>
+        <DockPanel DockPanel.Dock="Top" Margin="24,0,24,12">
+            <Button x:Name="btnDvRefresh" DockPanel.Dock="Right" Tag="&#xE72C;" Content="Yenile" Margin="8,0,0,0"/>
+            <CheckBox x:Name="chkDvAttention" DockPanel.Dock="Right" Content="Yalnızca eksik/süresi geçmiş" VerticalAlignment="Center" Margin="12,0,0,0"/>
+            <Button x:Name="btnDvPickOu" DockPanel.Dock="Left" Tag="&#xE8B7;" Content="OU Seç" Margin="0,0,8,0"/>
+            <TextBox x:Name="txtDvOu" IsReadOnly="True" AutomationProperties.Name="Seçili OU'lar" Margin="0"/>
+        </DockPanel>
+        <Border DockPanel.Dock="Bottom" Style="{DynamicResource DialogFooter}">
+            <StackPanel>
+                <DockPanel>
+                    <Button x:Name="btnDvUserSearch" DockPanel.Dock="Right" Margin="8,0,0,0" Tag="&#xE721;" Content="Ara"/>
+                    <TextBox x:Name="txtDvUser" AutomationProperties.Name="Atanacak kullanıcıyı ara" Tag="Atanacak kullanıcıyı ara"/>
+                </DockPanel>
+                <ListBox x:Name="lstDvUserResults" DisplayMemberPath="DisplayText" MaxHeight="120" Margin="0,6,0,0" Visibility="Collapsed"/>
+                <DockPanel Margin="0,8,0,0">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Button x:Name="btnDvAssign" Style="{DynamicResource PrimaryButton}" Tag="&#xE71B;" Content="Ata" IsEnabled="False"/>
+                        <Button x:Name="btnDvUnlink" Margin="8,0,0,0" Content="Bağı Kaldır" IsEnabled="False"/>
+                        <Button x:Name="btnDvSecret" Margin="8,0,0,0" Tag="&#xE72E;" Content="Parolaları Göster" IsEnabled="False"/>
+                    </StackPanel>
+                    <TextBlock x:Name="txtDvSummary" VerticalAlignment="Center" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,12,0"/>
+                </DockPanel>
+            </StackPanel>
+        </Border>
+        <Border Style="{DynamicResource Card}" Padding="0" Margin="24,0,24,12">
+            <DockPanel>
+                <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource LineSubtleBrush}" BorderThickness="0,0,0,1" Padding="18,10,18,9">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Ad" Style="{DynamicResource ListHeaderCell}"/>
+                        <TextBlock Grid.Column="1" Text="Sahip" Style="{DynamicResource ListHeaderCell}"/>
+                        <TextBlock Grid.Column="2" Text="Durum" Style="{DynamicResource ListHeaderCell}"/>
+                        <TextBlock Grid.Column="3" Text="Son oturum" Style="{DynamicResource ListHeaderCell}"/>
+                        <TextBlock Grid.Column="4" Text="BitLocker" Style="{DynamicResource ListHeaderCell}"/>
+                        <TextBlock Grid.Column="5" Text="LAPS" Style="{DynamicResource ListHeaderCell}"/>
+                        <TextBlock Grid.Column="6" Text="OU" Style="{DynamicResource ListHeaderCell}"/>
+                    </Grid>
+                </Border>
+                <ListBox x:Name="lstDv" SelectionMode="Extended" BorderThickness="0" Background="Transparent" Padding="0,4" HorizontalContentAlignment="Stretch"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="Transparent" CornerRadius="4" Padding="10,8" Margin="-10,-6,-10,-6">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="150"/>
+                                        <ColumnDefinition Width="140"/>
+                                        <ColumnDefinition Width="80"/>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="90"/>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Name}" Style="{DynamicResource ListCell}" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding OwnerName}" Style="{DynamicResource ListCell}"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding StatusText}" Style="{DynamicResource ListCell}"/>
+                                    <TextBlock Grid.Column="3" Text="{Binding LastLogonText}" Style="{DynamicResource ListCell}"/>
+                                    <TextBlock x:Name="DvBitLocker" Grid.Column="4" Text="{Binding BitLockerText}" Style="{DynamicResource ListCell}"/>
+                                    <TextBlock x:Name="DvLaps" Grid.Column="5" Text="{Binding LapsText}" Style="{DynamicResource ListCell}"/>
+                                    <TextBlock Grid.Column="6" Text="{Binding Ou}" ToolTip="{Binding Ou}" Style="{DynamicResource ListCell}" Foreground="{DynamicResource TextMutedBrush}"/>
+                                </Grid>
+                            </Border>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding NeedsAttention}" Value="True">
+                                    <Setter TargetName="DvBitLocker" Property="Foreground" Value="{DynamicResource WarningBrush}"/>
+                                    <Setter TargetName="DvLaps" Property="Foreground" Value="{DynamicResource WarningBrush}"/>
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
     </DockPanel>
                 <DockPanel x:Name="pageReports" Visibility="Collapsed">
         <DockPanel DockPanel.Dock="Top" Margin="24,20,24,12">

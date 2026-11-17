@@ -127,6 +127,8 @@ function Get-AuditTaskContext {
         'Enable-UserMailbox' { 'mailbox.create' }
         'Remove-DisabledUser' { 'user.delete' }
         'Get-DeletedDeviceSecret' { 'device.deleted.secrets_view' }
+        'Get-DeviceSecret' { 'device.secrets_view' }
+        'Set-DeviceOwnerBulk' { if ($Arguments.OwnerDn) { 'device.link' } else { 'device.unlink' } }
         'Set-DeviceOwner' { if ($Arguments.OwnerDn) { 'device.link' } else { 'device.unlink' } }
         'Connect-ExchangeEnvironment' { 'exchange.connect' }
         'Start-MailboxPstExport' { 'mailbox.pst.export' }
@@ -150,6 +152,15 @@ function Get-AuditTaskContext {
         $context.Target.target_dn = "CN=$([string]$Arguments.Attributes.Name),$([string]$Arguments.Path)"
     }
     elseif ($Command -eq 'Get-DeletedDeviceSecret') { $context.Target.target_device = [string]$Arguments.DeviceName }
+    elseif ($Command -eq 'Get-DeviceSecret') {
+        $context.Target.target_device = [string]$Arguments.DeviceName
+        $context.Target.target_dn = [string]$Arguments.ComputerDn
+    }
+    elseif ($Command -eq 'Set-DeviceOwnerBulk') {
+        $context.Target.target_owner = [string]$Arguments.OwnerDn
+        $context.Target.device_count = @($Arguments.ComputerDn).Count
+        if ($context.Target.device_count -eq 1) { $context.Target.target_device = Get-DnCommonName -DistinguishedName @($Arguments.ComputerDn)[0] }
+    }
     elseif ($Command -notmatch 'Exchange|Replication|Remove-DisabledUser' -and $script:State.CurrentData) {
         $ad = $script:State.CurrentData.Ad
         $context.Target.target_user = [string]$ad.SamAccountName

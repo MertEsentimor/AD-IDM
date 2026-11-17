@@ -163,18 +163,20 @@ function Show-SelectedDeletedDeviceSecret {
 }
 function Show-DeviceSecretDialog {
     [CmdletBinding()]
-    param([Parameter(Mandatory = $true)][psobject]$Secret)
+    param([Parameter(Mandatory = $true)][psobject]$Secret, [Parameter()][string]$EmptyHint)
+    $lapsEmpty = if ($EmptyHint) { "Bu cihazda LAPS parolası $EmptyHint." } else { 'Bu cihazda LAPS parolası kayıtlı değil.' }
+    $bitLockerEmpty = if ($EmptyHint) { "Bu cihaz için BitLocker kaydı $EmptyHint." } else { 'Bu cihaz için AD''de BitLocker kaydı yok.' }
     $rows = New-Object -TypeName 'System.Collections.ObjectModel.ObservableCollection[object]'
     $rows.Add([pscustomobject]@{
             Label = 'LAPS yerel yönetici parolası'
-            Detail = if ($Secret.LapsPassword -and $Secret.LapsExpiresAt) { "Son geçerlilik: $($Secret.LapsExpiresAt.ToString('dd.MM.yyyy HH:mm'))" } elseif ($Secret.LapsPassword) { '' } else { 'Bu cihazda LAPS parolası kayıtlı değil.' }
+            Detail = if ($Secret.LapsPassword -and $Secret.LapsExpiresAt) { "Son geçerlilik: $($Secret.LapsExpiresAt.ToString('dd.MM.yyyy HH:mm'))" } elseif ($Secret.LapsPassword) { '' } else { $lapsEmpty }
             Value = [string]$Secret.LapsPassword; HasValue = [bool]$Secret.LapsPassword
         })
     foreach ($key in @($Secret.BitLocker | Where-Object { $_ })) {
         $rows.Add([pscustomobject]@{ Label = 'BitLocker kurtarma anahtarı'; Detail = [string]$key.Name; Value = [string]$key.RecoveryPassword; HasValue = [bool]$key.RecoveryPassword })
     }
     if (@($Secret.BitLocker | Where-Object { $_ }).Count -eq 0) {
-        $rows.Add([pscustomobject]@{ Label = 'BitLocker kurtarma anahtarı'; Detail = 'Bu cihaz için AD''de BitLocker kaydı yok.'; Value = ''; HasValue = $false })
+        $rows.Add([pscustomobject]@{ Label = 'BitLocker kurtarma anahtarı'; Detail = $bitLockerEmpty; Value = ''; HasValue = $false })
     }
     $dialog = New-MainWindow -Xaml $script:DeviceSecretXaml
     try {

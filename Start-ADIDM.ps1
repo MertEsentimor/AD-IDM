@@ -191,7 +191,7 @@ if (-not $isAdministrator -or [System.Threading.Thread]::CurrentThread.GetApartm
     return
 }
 
-foreach ($relativePath in 'UI\Theme.ps1', 'UI\Layout.ps1', 'UI\Controls.ps1', 'UI\Handlers\Search.ps1', 'UI\Handlers\UserProfile.ps1', 'UI\Handlers\Exchange.ps1', 'UI\Handlers\Groups.ps1', 'UI\Handlers\Actions.ps1', 'UI\Handlers\NewUser.ps1', 'UI\Handlers\Offboarding.ps1', 'UI\Handlers\Leave.ps1', 'UI\Handlers\Reports.ps1', 'UI\Handlers\Settings.ps1', 'UI\Handlers\Dashboard.ps1', 'UI\Handlers\Devices.ps1', 'UI\Shell.ps1') {
+foreach ($relativePath in 'UI\Theme.ps1', 'UI\Layout.ps1', 'UI\Controls.ps1', 'UI\Handlers\Search.ps1', 'UI\Handlers\UserProfile.ps1', 'UI\Handlers\Exchange.ps1', 'UI\Handlers\Groups.ps1', 'UI\Handlers\Actions.ps1', 'UI\Handlers\NewUser.ps1', 'UI\Handlers\Offboarding.ps1', 'UI\Handlers\Leave.ps1', 'UI\Handlers\Reports.ps1', 'UI\Handlers\Settings.ps1', 'UI\Handlers\Dashboard.ps1', 'UI\Handlers\Devices.ps1', 'UI\Handlers\DevicesPage.ps1', 'UI\Shell.ps1') {
     . ([scriptblock]::Create((Read-AppFile -RelativePath $relativePath)))
 }
 

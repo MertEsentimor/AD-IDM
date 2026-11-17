@@ -24,12 +24,17 @@ $global:Sync = [hashtable]::Synchronized(@{
 $script:AppRoot = $temporaryFolder
 $script:Ui = @{}
 $script:Audit = @{ Operator = 'TEST\admin' }
-foreach ($relativePath in 'Core/WorkerBootstrap.ps1', 'Modules/AD/Search.ps1', 'Modules/AD/Devices.ps1', 'Modules/AD/DisabledUsers.ps1', 'Core/Audit.ps1', 'Core/Config.ps1', 'UI/Handlers/Settings.ps1', 'UI/Handlers/Offboarding.ps1') {
+foreach ($relativePath in 'Core/WorkerBootstrap.ps1', 'Modules/AD/Search.ps1', 'Modules/AD/Devices.ps1', 'Modules/AD/DisabledUsers.ps1', 'Core/Audit.ps1', 'Core/Config.ps1', 'UI/Handlers/Settings.ps1', 'UI/Handlers/Offboarding.ps1', 'UI/Handlers/DevicesPage.ps1') {
     . (Join-Path -Path $projectRoot -ChildPath $relativePath)
 }
 $ErrorActionPreference = 'Stop'
 $script:Calls = New-Object -TypeName System.Collections.ArrayList
 $script:Filters = New-Object -TypeName System.Collections.ArrayList
+
+# ---- Cihazlar sayfası filtresi
+Assert-True (Test-DeviceAttentionFilter -Item ([pscustomobject]@{ NeedsAttention = $false }) -OnlyAttention $false) 'Filtre kapalı: hepsi görünür'
+Assert-True (-not (Test-DeviceAttentionFilter -Item ([pscustomobject]@{ NeedsAttention = $false }) -OnlyAttention $true)) 'Filtre açık: sorunsuz gizlenir'
+Assert-True (Test-DeviceAttentionFilter -Item ([pscustomobject]@{ NeedsAttention = $true }) -OnlyAttention $true) 'Filtre açık: uyarılı görünür'
 
 # ---- Ad kuralı
 Assert-True ((Test-DeviceNameMatch -Pattern 'NB-{sam}' -SamAccountName 'ME9533' -Name 'NB-ME9533')) 'NB-ME9533 eşleşir'
@@ -275,6 +280,120 @@ Assert-True ($lines[0] -eq '|     Cihazlar: NB-ME9533 (BitLocker: 2 anahtar, LAP
 Assert-True ($lines[1] -eq '|     Atlanacak: NB-XX0001 (managedBy başka kullanıcıyı gösteriyor: Ali)') 'Atlanan satırı'
 Assert-True (@(Format-RemovalDeviceLine -Devices @()).Count -eq 0) 'Cihazsız kullanıcıda satır yok'
 Assert-True ((Format-RemovalSummary -Results @([pscustomobject]@{ Success = $true; Devices = @([pscustomobject]@{ Success = $true; Skipped = $false }, [pscustomobject]@{ Success = $false; Skipped = $true }) })) -eq ', 1 cihaz silindi') 'Özet cihaz sayısı'
+
+# ---- OU cihaz listesi
+$script:OuFakeGetADComputer = ${function:Get-ADComputer}
+$script:OuFakeGetADObject = ${function:Get-ADObject}
+$script:OuFakeWriteWorkerLog = ${function:Write-WorkerLog}
+$script:OuLogs = New-Object -TypeName System.Collections.ArrayList
+function global:Write-WorkerLog { param($Message, $Level = 'Info') [void]$script:OuLogs.Add([pscustomobject]@{ Message = $Message; Level = $Level }) }
+function New-OuComputer {
+    param([string]$Name, [string]$Ou, [bool]$Enabled = $true, [string]$Os = 'Windows 10 Enterprise', $Laps = $null)
+    $escaped = $Name -replace ',', '\,'
+    [pscustomobject]@{
+        Name = $Name; DistinguishedName = "CN=$escaped,$Ou"; ObjectGUID = [guid]::NewGuid(); Enabled = $Enabled; OperatingSystem = $Os
+        managedBy = $null; lastLogonTimestamp = (Get-Date '2026-11-01').ToFileTime(); 'ms-Mcs-AdmPwdExpirationTime' = $Laps
+    }
+}
+$ouA = 'OU=A,DC=test,DC=local'; $ouSub = 'OU=Sub,OU=A,DC=test,DC=local'
+$future = (Get-Date).AddDays(10).ToFileTime(); $past = (Get-Date).AddDays(-10).ToFileTime()
+$script:OuComputers = @(
+    (New-OuComputer -Name 'PC1' -Ou $ouA -Os 'Windows 11 Enterprise' -Laps $future),
+    (New-OuComputer -Name 'PC2' -Ou $ouA),
+    (New-OuComputer -Name 'SRV1' -Ou $ouA -Os 'Windows Server 2022'),
+    (New-OuComputer -Name 'PC3' -Ou $ouA -Enabled $false),
+    (New-OuComputer -Name 'PC, (X)' -Ou $ouA -Laps $past),
+    (New-OuComputer -Name 'PC4' -Ou $ouA -Laps 1),
+    (New-OuComputer -Name 'PC5' -Ou $ouSub),
+    (New-OuComputer -Name 'PC6' -Ou $ouA -Laps ([long]::MaxValue))
+)
+$script:OuKeys = @(
+    'CN=k1,CN=PC1,OU=A,DC=test,DC=local', 'CN=k2,CN=PC1,OU=A,DC=test,DC=local',
+    'CN=k1,CN=PC\, (X),OU=A,DC=test,DC=local', 'CN=k1,CN=OTHER,OU=B,DC=test,DC=local'
+)
+function global:Get-ADComputer {
+    param($Filter, $SearchBase, $SearchScope, $Properties, $Server, $ErrorAction, $ResultSetSize)
+    [void]$script:Calls.Add([pscustomobject]@{ Command = 'Get-ADComputer'; Properties = @($Properties); SearchScope = $SearchScope; Server = $Server })
+    if ($script:OuBigCount) { return @(1..$script:OuBigCount | ForEach-Object { New-OuComputer -Name "BIG$_" -Ou $SearchBase }) }
+    $script:OuComputers | Where-Object { $_.DistinguishedName -like "*,$SearchBase" -and ($SearchScope -ne 'OneLevel' -or $_.DistinguishedName -notlike "*,OU=*,$SearchBase") }
+}
+function global:Get-ADObject {
+    param($LDAPFilter, $SearchBase, $SearchScope, $Properties, $Server, $ErrorAction)
+    [void]$script:Calls.Add([pscustomobject]@{ Command = 'Get-ADObject'; Properties = @($Properties) })
+    if ($script:OuBigCount) { return @() }
+    $script:OuKeys | Where-Object { $_ -like "*,$SearchBase" } | ForEach-Object { [pscustomobject]@{ DistinguishedName = $_ } }
+}
+$script:Calls.Clear(); $script:OuBigCount = 0
+$list = @(Get-OuDeviceList -OuDn 'OU=A,DC=test,DC=local', 'OU=Sub,OU=A,DC=test,DC=local' -Subtree $true)
+$byName = @{}; foreach ($d in $list) { $byName[$d.Name] = $d }
+Assert-True ($list.Count -eq 8 -and $list.Count -eq @($list.ObjectGuid | Select-Object -Unique).Count) 'İç içe OU seçiminde bilgisayar tekil'
+Assert-True ($byName['PC1'].BitLockerCount -eq 2 -and $byName['PC1'].LapsState -eq 'Geçerli' -and -not $byName['PC1'].NeedsAttention) 'PC1 sorunsuz'
+Assert-True ($byName['PC2'].BitLockerCount -eq 0 -and $byName['PC2'].LapsState -eq 'Yok' -and $byName['PC2'].NeedsAttention) 'PC2 uyarı'
+Assert-True (-not $byName['SRV1'].NeedsAttention) 'Sunucu uyarı sayılmaz'
+Assert-True (-not $byName['PC3'].NeedsAttention) 'Devre dışı uyarı sayılmaz'
+Assert-True ($byName['PC, (X)'].BitLockerCount -eq 1 -and $byName['PC, (X)'].LapsState -eq 'Süresi geçmiş') 'Özel karakterli DN doğru gruplanır'
+Assert-True ($byName['PC4'].LapsState -eq 'Yok' -and $null -eq $byName['PC4'].LapsExpiresAt) 'LAPS değeri 1 = Yok'
+Assert-True ($byName['PC6'].LapsState -eq 'Yok' -and $null -eq $byName['PC6'].LapsExpiresAt) 'Aralık dışı LAPS tarihi listeyi bozmaz'
+Assert-True ($byName['PC1'].Ou -eq $ouA -and $byName['PC1'].StatusText -eq 'Etkin' -and $byName['PC3'].StatusText -eq 'Devre dışı' -and $byName['PC1'].BitLockerText -eq '2 anahtar' -and $byName['PC2'].BitLockerText -eq 'Yok' -and $byName['PC2'].OwnerName -eq '-') 'Metin alanları'
+Assert-True (-not ($list | Get-Member -Name '*Pwd*', '*Password*')) 'Liste nesnesinde parola alanı yok'
+Assert-True (-not (@($script:Calls | Where-Object { $_.Command -eq 'Get-ADComputer' }).Properties -match 'AdmPwd$|RecoveryPassword') -and -not (@($script:Calls | Where-Object { $_.Command -eq 'Get-ADObject' }).Properties -match 'RecoveryPassword')) 'Parola özelliği istenmez'
+$script:OuLogs.Clear(); $script:OuBigCount = 5001
+$bigList = @(Get-OuDeviceList -OuDn $ouA)
+Assert-True ($bigList.Count -eq 5000 -and @($script:OuLogs | Where-Object { $_.Level -eq 'Warning' -and $_.Message -match 'OU seçimini daraltın' }).Count -eq 1) '5000 üst sınırı'
+${function:global:Get-ADComputer} = $script:OuFakeGetADComputer
+${function:global:Get-ADObject} = $script:OuFakeGetADObject
+${function:global:Write-WorkerLog} = $script:OuFakeWriteWorkerLog
+
+# ---- Canlı parola, toplu sahip, kullanıcı DN
+$script:SecFakes = @{ C = ${function:Get-ADComputer}; O = ${function:Get-ADObject}; S = ${function:Set-ADComputer}; U = ${function:Get-ADUser} }
+$script:SecDenied = $false
+function global:Get-ADComputer {
+    param($Identity, $Properties, $Server, $ErrorAction)
+    if ($script:SecDenied) { throw 'Access is denied' }
+    [pscustomobject]@{ DistinguishedName = [string]$Identity; 'ms-Mcs-AdmPwd' = 'P@ss'; 'ms-Mcs-AdmPwdExpirationTime' = (Get-Date).AddDays(10).ToFileTime() }
+}
+function global:Get-ADObject {
+    param($LDAPFilter, $SearchBase, $SearchScope, $Properties, $Server, $ErrorAction)
+    [pscustomobject]@{ Name = 'k1'; 'msFVE-RecoveryPassword' = '111-222' }
+    [pscustomobject]@{ Name = 'k2'; 'msFVE-RecoveryPassword' = '333-444' }
+}
+function global:Set-ADComputer {
+    param($Identity, [hashtable]$Replace, $Clear, $Server, $ErrorAction)
+    if ($Identity -like 'CN=BAD,*') { throw 'boom' }
+    [void]$script:Calls.Add("Set $Identity")
+}
+function global:Get-ADUser {
+    param($Identity, $LDAPFilter, $Server, $Properties, $ResultSetSize, $ErrorAction)
+    [pscustomobject]@{ Name = 'Ali'; DisplayName = 'Ali Veli'; SamAccountName = 'ali'; UserPrincipalName = 'ali@test.local'; Enabled = $true; DistinguishedName = 'CN=Ali,OU=U,DC=test,DC=local'; ObjectGUID = [guid]::NewGuid() }
+}
+$secret = Get-DeviceSecret -ComputerDn 'CN=PC1,OU=A,DC=test,DC=local' -DeviceName 'PC1'
+Assert-True ($secret.LapsPassword -eq 'P@ss' -and @($secret.BitLocker).Count -eq 2 -and $secret.DeviceName -eq 'PC1' -and $secret.BitLocker[0].RecoveryPassword -eq '111-222' -and $secret.LapsExpiresAt -is [datetime]) 'Canlı parola okunur'
+$script:SecDenied = $true
+Assert-True ((Get-ThrownMessage { Get-DeviceSecret -ComputerDn 'CN=PC1,OU=A,DC=test,DC=local' -DeviceName 'PC1' }) -match 'yetkiniz yok') 'Yetki hatası Türkçe'
+$script:SecDenied = $false
+$script:Calls.Clear()
+$results = @(Set-DeviceOwnerBulk -ComputerDn 'CN=OK1,OU=A,DC=test,DC=local', 'CN=BAD,OU=A,DC=test,DC=local', 'CN=OK2,OU=A,DC=test,DC=local' -OwnerDn 'CN=Ali,OU=U,DC=test,DC=local' -Confirm:$false)
+Assert-True ($results.Count -eq 3 -and @($results | Where-Object Success).Count -eq 2 -and ($results | Where-Object { -not $_.Success }).Step -eq 'BAD') 'Kısmi hata diğerlerini durdurmaz'
+$results = @(Set-DeviceOwnerBulk -ComputerDn 'CN=OK1,OU=A,DC=test,DC=local' -OwnerDn 'CN=Ali,OU=U,DC=test,DC=local' -WhatIf)
+Assert-True ($results[0].Message -eq 'simüle edildi') 'WhatIf iletilir'
+$results = @(Set-DeviceOwnerBulk -ComputerDn 'CN=OK1,OU=A,DC=test,DC=local' -OwnerDn '' -Confirm:$false)
+Assert-True ($results[0].Success -and $results[0].Message -eq 'bağ kaldırıldı') 'Boş sahip bağı kaldırır'
+Assert-True ((Find-DirectoryUser -Query 'ali')[0].DistinguishedName -eq 'CN=Ali,OU=U,DC=test,DC=local') 'Kullanıcı aramasında DN var'
+$previousAuditState = $script:State
+$script:State = @{ CurrentData = @{ Ad = @{ SamAccountName = 'profiluser'; DistinguishedName = 'CN=Profil,DC=test,DC=local'; ObjectGuid = 'g'; UserPrincipalName = 'p@test' } } }
+$ctx = Get-AuditTaskContext -Command 'Get-DeviceSecret' -Arguments @{ ComputerDn = 'CN=PC1,OU=A,DC=test,DC=local'; DeviceName = 'PC1' }
+Assert-True ($ctx.Action -eq 'device.secrets_view' -and $ctx.Target.target_device -eq 'PC1' -and $ctx.Target.target_dn -eq 'CN=PC1,OU=A,DC=test,DC=local' -and -not $ctx.Target.Contains('target_user')) 'Parola görüntüleme denetimi, profil kullanıcısı hedef değil'
+$ctx = Get-AuditTaskContext -Command 'Set-DeviceOwnerBulk' -Arguments @{ ComputerDn = @('CN=PC1,OU=A,DC=test,DC=local'); OwnerDn = 'CN=Ali,OU=U,DC=test,DC=local' }
+Assert-True ($ctx.Action -eq 'device.link' -and $ctx.Target.target_owner -eq 'CN=Ali,OU=U,DC=test,DC=local' -and $ctx.Target.target_device -eq 'PC1' -and $ctx.Target.device_count -eq 1 -and -not $ctx.Target.Contains('target_user')) 'Toplu atama denetimi'
+$ctx = Get-AuditTaskContext -Command 'Set-DeviceOwnerBulk' -Arguments @{ ComputerDn = @('CN=PC1,OU=A,DC=test,DC=local', 'CN=PC2,OU=A,DC=test,DC=local', 'CN=PC3,OU=A,DC=test,DC=local'); OwnerDn = 'CN=Ali,OU=U,DC=test,DC=local' }
+Assert-True (-not $ctx.Target.Contains('target_device') -and $ctx.Target.device_count -eq 3) 'Çoklu seçimde target_device yok, device_count 3'
+$ctx = Get-AuditTaskContext -Command 'Set-DeviceOwnerBulk' -Arguments @{ ComputerDn = @('CN=PC1,OU=A,DC=test,DC=local'); OwnerDn = '' }
+Assert-True ($ctx.Action -eq 'device.unlink') 'Toplu bağ kaldırma denetimi'
+$script:State = $previousAuditState
+${function:global:Get-ADComputer} = $script:SecFakes.C
+${function:global:Get-ADObject} = $script:SecFakes.O
+${function:global:Set-ADComputer} = $script:SecFakes.S
+${function:global:Get-ADUser} = $script:SecFakes.U
 
 Remove-Item -LiteralPath $temporaryFolder -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
