@@ -337,6 +337,46 @@ ${function:global:Get-ADComputer} = $script:OuFakeGetADComputer
 ${function:global:Get-ADObject} = $script:OuFakeGetADObject
 ${function:global:Write-WorkerLog} = $script:OuFakeWriteWorkerLog
 
+# ---- Canlı parola, toplu sahip, kullanıcı DN
+$script:SecFakes = @{ C = ${function:Get-ADComputer}; O = ${function:Get-ADObject}; S = ${function:Set-ADComputer}; U = ${function:Get-ADUser} }
+$script:SecDenied = $false
+function global:Get-ADComputer {
+    param($Identity, $Properties, $Server, $ErrorAction)
+    if ($script:SecDenied) { throw 'Access is denied' }
+    [pscustomobject]@{ DistinguishedName = [string]$Identity; 'ms-Mcs-AdmPwd' = 'P@ss'; 'ms-Mcs-AdmPwdExpirationTime' = (Get-Date).AddDays(10).ToFileTime() }
+}
+function global:Get-ADObject {
+    param($LDAPFilter, $SearchBase, $SearchScope, $Properties, $Server, $ErrorAction)
+    [pscustomobject]@{ Name = 'k1'; 'msFVE-RecoveryPassword' = '111-222' }
+    [pscustomobject]@{ Name = 'k2'; 'msFVE-RecoveryPassword' = '333-444' }
+}
+function global:Set-ADComputer {
+    param($Identity, [hashtable]$Replace, $Clear, $Server, $ErrorAction)
+    if ($Identity -like 'CN=BAD,*') { throw 'boom' }
+    [void]$script:Calls.Add("Set $Identity")
+}
+function global:Get-ADUser {
+    param($Identity, $LDAPFilter, $Server, $Properties, $ResultSetSize, $ErrorAction)
+    [pscustomobject]@{ Name = 'Ali'; DisplayName = 'Ali Veli'; SamAccountName = 'ali'; UserPrincipalName = 'ali@test.local'; Enabled = $true; DistinguishedName = 'CN=Ali,OU=U,DC=test,DC=local'; ObjectGUID = [guid]::NewGuid() }
+}
+$secret = Get-DeviceSecret -ComputerDn 'CN=PC1,OU=A,DC=test,DC=local' -DeviceName 'PC1'
+Assert-True ($secret.LapsPassword -eq 'P@ss' -and @($secret.BitLocker).Count -eq 2 -and $secret.DeviceName -eq 'PC1' -and $secret.BitLocker[0].RecoveryPassword -eq '111-222' -and $secret.LapsExpiresAt -is [datetime]) 'Canlı parola okunur'
+$script:SecDenied = $true
+Assert-True ((Get-ThrownMessage { Get-DeviceSecret -ComputerDn 'CN=PC1,OU=A,DC=test,DC=local' -DeviceName 'PC1' }) -match 'yetkiniz yok') 'Yetki hatası Türkçe'
+$script:SecDenied = $false
+$script:Calls.Clear()
+$results = @(Set-DeviceOwnerBulk -ComputerDn 'CN=OK1,OU=A,DC=test,DC=local', 'CN=BAD,OU=A,DC=test,DC=local', 'CN=OK2,OU=A,DC=test,DC=local' -OwnerDn 'CN=Ali,OU=U,DC=test,DC=local' -Confirm:$false)
+Assert-True ($results.Count -eq 3 -and @($results | Where-Object Success).Count -eq 2 -and ($results | Where-Object { -not $_.Success }).Step -eq 'BAD') 'Kısmi hata diğerlerini durdurmaz'
+$results = @(Set-DeviceOwnerBulk -ComputerDn 'CN=OK1,OU=A,DC=test,DC=local' -OwnerDn 'CN=Ali,OU=U,DC=test,DC=local' -WhatIf)
+Assert-True ($results[0].Message -eq 'simüle edildi') 'WhatIf iletilir'
+$results = @(Set-DeviceOwnerBulk -ComputerDn 'CN=OK1,OU=A,DC=test,DC=local' -OwnerDn '' -Confirm:$false)
+Assert-True ($results[0].Success -and $results[0].Message -eq 'bağ kaldırıldı') 'Boş sahip bağı kaldırır'
+Assert-True ((Find-DirectoryUser -Query 'ali')[0].DistinguishedName -eq 'CN=Ali,OU=U,DC=test,DC=local') 'Kullanıcı aramasında DN var'
+${function:global:Get-ADComputer} = $script:SecFakes.C
+${function:global:Get-ADObject} = $script:SecFakes.O
+${function:global:Set-ADComputer} = $script:SecFakes.S
+${function:global:Get-ADUser} = $script:SecFakes.U
+
 Remove-Item -LiteralPath $temporaryFolder -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
 if ($script:FailureCount -gt 0) {

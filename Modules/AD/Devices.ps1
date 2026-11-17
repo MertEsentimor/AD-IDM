@@ -264,6 +264,44 @@ function global:Get-DeletedDeviceSecret {
         BitLocker     = @($keys | ForEach-Object { [pscustomobject]@{ Name = [string]$_.Name; RecoveryPassword = [string]$_.'msFVE-RecoveryPassword' } })
     }
 }
+function global:Get-DeviceSecret {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)][string]$ComputerDn,
+        [Parameter(Mandatory = $true)][string]$DeviceName
+    )
+    $server = Get-PdcEmulator
+    Write-WorkerLog -Message "Cihaz parolaları okunuyor: $DeviceName ($ComputerDn)" -Level Verbose
+    try {
+        $computer = Get-ADComputer -Identity $ComputerDn -Properties 'ms-Mcs-AdmPwd', 'ms-Mcs-AdmPwdExpirationTime' -Server $server -ErrorAction Stop
+        $keys = @(Get-ADObject -LDAPFilter '(objectClass=msFVE-RecoveryInformation)' -SearchBase $ComputerDn -SearchScope OneLevel -Properties 'msFVE-RecoveryPassword' -Server $server -ErrorAction Stop)
+    }
+    catch {
+        if ($_.Exception.Message -match 'Access is denied|Erişim engellendi|insufficient access') {
+            throw 'Parolaları okuma yetkiniz yok (LAPS ve BitLocker okuma izni gerekir).'
+        }
+        throw
+    }
+    $expiry = [long]$computer.'ms-Mcs-AdmPwdExpirationTime'
+    return [pscustomobject]@{
+        DeviceName    = $DeviceName
+        LapsPassword  = if ($computer.'ms-Mcs-AdmPwd') { [string]$computer.'ms-Mcs-AdmPwd' } else { $null }
+        LapsExpiresAt = if ($expiry -gt 1) { [datetime]::FromFileTime($expiry) } else { $null }
+        BitLocker     = @($keys | ForEach-Object { [pscustomobject]@{ Name = [string]$_.Name; RecoveryPassword = [string]$_.'msFVE-RecoveryPassword' } })
+    }
+}
+function global:Set-DeviceOwnerBulk {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)][string[]]$ComputerDn,
+        [Parameter()][AllowEmptyString()][string]$OwnerDn
+    )
+    foreach ($dn in $ComputerDn) {
+        Set-DeviceOwner -ComputerDn $dn -OwnerDn $OwnerDn -WhatIf:$WhatIfPreference -Confirm:$false
+    }
+}
 function global:Get-ProfileDeviceData {
     [CmdletBinding()]
     [OutputType([pscustomobject])]

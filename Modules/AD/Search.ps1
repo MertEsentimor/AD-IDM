@@ -81,6 +81,7 @@ function global:Find-DirectoryUser {
             Enabled           = [bool]$user.Enabled
             StatusText        = if ($user.Enabled) { [string]$user.UserPrincipalName } else { "Devre dışı | $($user.UserPrincipalName)" }
             ObjectGuid        = $user.ObjectGUID.ToString()
+            DistinguishedName = [string]$user.DistinguishedName
         }
     }
 }
