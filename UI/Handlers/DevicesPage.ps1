@@ -65,9 +65,11 @@ function Start-DevicesPageLoad {
         $page.Items.Clear()
         foreach ($row in @($Result | Where-Object { $_ })) { $page.Items.Add($row) }
         Update-DevicesPageSummary
+        if ($page.LastResult) { $script:Ui.txtDvSummary.Text += " $($page.LastResult)"; $page.LastResult = $null }
         Update-DevicesPageButtonState
     } -OnFailure {
         param($Message)
+        $script:State.DevicesPage.LastResult = $null
         $script:Ui.txtDvSummary.Text = "Bilgisayarlar okunamadı: $Message"
     }
     if (-not $started) { $script:Ui.txtDvSummary.Text = 'Başka bir işlem sürüyor; biraz sonra tekrar deneyin.' }
@@ -106,8 +108,8 @@ function Start-DevicesPageOwnerChange {
             elseif ($simulate) { "Simülasyon: $($results.Count) bilgisayar için değişiklik yapılmadı." }
             else { "$($results.Count) bilgisayarın sahibi güncellendi." }
             Write-UiLog -Message $text -Level $(if ($failed.Count) { 'Error' } elseif ($simulate) { 'Info' } else { 'Success' })
+            $script:State.DevicesPage.LastResult = $text
             Start-DevicesPageLoad
-            $script:Ui.txtDvSummary.Text = $text
             $current = $script:State.CurrentData
             if (-not $simulate -and $current -and @($script:State.ActionContext.Affected | Where-Object { ([string]$_).Equals([string]$current.Ad.DistinguishedName, [System.StringComparison]::OrdinalIgnoreCase) }).Count) {
                 Start-UserLoad -ObjectGuid $current.Ad.ObjectGuid -Force
