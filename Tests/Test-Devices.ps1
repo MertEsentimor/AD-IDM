@@ -304,7 +304,8 @@ $script:OuComputers = @(
     (New-OuComputer -Name 'PC3' -Ou $ouA -Enabled $false),
     (New-OuComputer -Name 'PC, (X)' -Ou $ouA -Laps $past),
     (New-OuComputer -Name 'PC4' -Ou $ouA -Laps 1),
-    (New-OuComputer -Name 'PC5' -Ou $ouSub)
+    (New-OuComputer -Name 'PC5' -Ou $ouSub),
+    (New-OuComputer -Name 'PC6' -Ou $ouA -Laps ([long]::MaxValue))
 )
 $script:OuKeys = @(
     'CN=k1,CN=PC1,OU=A,DC=test,DC=local', 'CN=k2,CN=PC1,OU=A,DC=test,DC=local',
@@ -325,13 +326,14 @@ function global:Get-ADObject {
 $script:Calls.Clear(); $script:OuBigCount = 0
 $list = @(Get-OuDeviceList -OuDn 'OU=A,DC=test,DC=local', 'OU=Sub,OU=A,DC=test,DC=local' -Subtree $true)
 $byName = @{}; foreach ($d in $list) { $byName[$d.Name] = $d }
-Assert-True ($list.Count -eq 7 -and $list.Count -eq @($list.ObjectGuid | Select-Object -Unique).Count) 'İç içe OU seçiminde bilgisayar tekil'
+Assert-True ($list.Count -eq 8 -and $list.Count -eq @($list.ObjectGuid | Select-Object -Unique).Count) 'İç içe OU seçiminde bilgisayar tekil'
 Assert-True ($byName['PC1'].BitLockerCount -eq 2 -and $byName['PC1'].LapsState -eq 'Geçerli' -and -not $byName['PC1'].NeedsAttention) 'PC1 sorunsuz'
 Assert-True ($byName['PC2'].BitLockerCount -eq 0 -and $byName['PC2'].LapsState -eq 'Yok' -and $byName['PC2'].NeedsAttention) 'PC2 uyarı'
 Assert-True (-not $byName['SRV1'].NeedsAttention) 'Sunucu uyarı sayılmaz'
 Assert-True (-not $byName['PC3'].NeedsAttention) 'Devre dışı uyarı sayılmaz'
 Assert-True ($byName['PC, (X)'].BitLockerCount -eq 1 -and $byName['PC, (X)'].LapsState -eq 'Süresi geçmiş') 'Özel karakterli DN doğru gruplanır'
 Assert-True ($byName['PC4'].LapsState -eq 'Yok' -and $null -eq $byName['PC4'].LapsExpiresAt) 'LAPS değeri 1 = Yok'
+Assert-True ($byName['PC6'].LapsState -eq 'Yok' -and $null -eq $byName['PC6'].LapsExpiresAt) 'Aralık dışı LAPS tarihi listeyi bozmaz'
 Assert-True ($byName['PC1'].Ou -eq $ouA -and $byName['PC1'].StatusText -eq 'Etkin' -and $byName['PC3'].StatusText -eq 'Devre dışı' -and $byName['PC1'].BitLockerText -eq '2 anahtar' -and $byName['PC2'].BitLockerText -eq 'Yok' -and $byName['PC2'].OwnerName -eq '-') 'Metin alanları'
 Assert-True (-not ($list | Get-Member -Name '*Pwd*', '*Password*')) 'Liste nesnesinde parola alanı yok'
 Assert-True (-not (@($script:Calls | Where-Object { $_.Command -eq 'Get-ADComputer' }).Properties -match 'AdmPwd$|RecoveryPassword') -and -not (@($script:Calls | Where-Object { $_.Command -eq 'Get-ADObject' }).Properties -match 'RecoveryPassword')) 'Parola özelliği istenmez'
@@ -382,7 +384,9 @@ $script:State = @{ CurrentData = @{ Ad = @{ SamAccountName = 'profiluser'; Disti
 $ctx = Get-AuditTaskContext -Command 'Get-DeviceSecret' -Arguments @{ ComputerDn = 'CN=PC1,OU=A,DC=test,DC=local'; DeviceName = 'PC1' }
 Assert-True ($ctx.Action -eq 'device.secrets_view' -and $ctx.Target.target_device -eq 'PC1' -and $ctx.Target.target_dn -eq 'CN=PC1,OU=A,DC=test,DC=local' -and -not $ctx.Target.Contains('target_user')) 'Parola görüntüleme denetimi, profil kullanıcısı hedef değil'
 $ctx = Get-AuditTaskContext -Command 'Set-DeviceOwnerBulk' -Arguments @{ ComputerDn = @('CN=PC1,OU=A,DC=test,DC=local'); OwnerDn = 'CN=Ali,OU=U,DC=test,DC=local' }
-Assert-True ($ctx.Action -eq 'device.link' -and $ctx.Target.target_owner -eq 'CN=Ali,OU=U,DC=test,DC=local' -and $ctx.Target.target_device -eq 'PC1' -and -not $ctx.Target.Contains('target_user')) 'Toplu atama denetimi'
+Assert-True ($ctx.Action -eq 'device.link' -and $ctx.Target.target_owner -eq 'CN=Ali,OU=U,DC=test,DC=local' -and $ctx.Target.target_device -eq 'PC1' -and $ctx.Target.device_count -eq 1 -and -not $ctx.Target.Contains('target_user')) 'Toplu atama denetimi'
+$ctx = Get-AuditTaskContext -Command 'Set-DeviceOwnerBulk' -Arguments @{ ComputerDn = @('CN=PC1,OU=A,DC=test,DC=local', 'CN=PC2,OU=A,DC=test,DC=local', 'CN=PC3,OU=A,DC=test,DC=local'); OwnerDn = 'CN=Ali,OU=U,DC=test,DC=local' }
+Assert-True (-not $ctx.Target.Contains('target_device') -and $ctx.Target.device_count -eq 3) 'Çoklu seçimde target_device yok, device_count 3'
 $ctx = Get-AuditTaskContext -Command 'Set-DeviceOwnerBulk' -Arguments @{ ComputerDn = @('CN=PC1,OU=A,DC=test,DC=local'); OwnerDn = '' }
 Assert-True ($ctx.Action -eq 'device.unlink') 'Toplu bağ kaldırma denetimi'
 $script:State = $previousAuditState

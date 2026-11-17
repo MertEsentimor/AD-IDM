@@ -158,7 +158,8 @@ function Get-AuditTaskContext {
     }
     elseif ($Command -eq 'Set-DeviceOwnerBulk') {
         $context.Target.target_owner = [string]$Arguments.OwnerDn
-        $context.Target.target_device = (@($Arguments.ComputerDn) | ForEach-Object { Get-DnCommonName -DistinguishedName $_ }) -join ', '
+        $context.Target.device_count = @($Arguments.ComputerDn).Count
+        if ($context.Target.device_count -eq 1) { $context.Target.target_device = Get-DnCommonName -DistinguishedName @($Arguments.ComputerDn)[0] }
     }
     elseif ($Command -notmatch 'Exchange|Replication|Remove-DisabledUser' -and $script:State.CurrentData) {
         $ad = $script:State.CurrentData.Ad

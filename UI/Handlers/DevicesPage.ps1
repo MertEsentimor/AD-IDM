@@ -4,6 +4,15 @@
     param([Parameter(Mandatory = $true)][psobject]$Item, [Parameter(Mandatory = $true)][bool]$OnlyAttention)
     return (-not $OnlyAttention) -or [bool]$Item.NeedsAttention
 }
+function Set-DevicesPageView {
+    [CmdletBinding()]
+    param()
+    $page = $script:State.DevicesPage
+    $view = [System.Windows.Data.CollectionViewSource]::GetDefaultView($page.Items)
+    # Süzgeç yalnız onay kutusu açıkken atanır; kapalıyken satır başına delege çağrısı olmaz.
+    $view.Filter = if ([bool]$script:Ui.chkDvAttention.IsChecked) { [System.Predicate[object]]{ param($item) Test-DeviceAttentionFilter -Item $item -OnlyAttention $true } } else { $null }
+    $script:Ui.lstDv.ItemsSource = $view
+}
 function Update-DevicesPageSummary {
     [CmdletBinding()]
     param()
@@ -25,9 +34,7 @@ function Initialize-DevicesPage {
     $page = $script:State.DevicesPage
     if (-not $page.Items) {
         $page.Items = New-Object -TypeName 'System.Collections.ObjectModel.ObservableCollection[object]'
-        $view = [System.Windows.Data.CollectionViewSource]::GetDefaultView($page.Items)
-        $view.Filter = [System.Predicate[object]]{ param($item) Test-DeviceAttentionFilter -Item $item -OnlyAttention ([bool]$script:Ui.chkDvAttention.IsChecked) }
-        $script:Ui.lstDv.ItemsSource = $view
+        Set-DevicesPageView
     }
     if (@($page.Ou).Count -eq 0) { $script:Ui.txtDvSummary.Text = 'Başlamak için "OU Seç" ile bilgisayarların bulunduğu OU''ları seçin.' }
 }
@@ -62,8 +69,10 @@ function Start-DevicesPageLoad {
     $started = Invoke-BackgroundTask -Name 'OU''daki bilgisayarlar okunuyor' -Command 'Get-OuDeviceList' -Arguments @{ OuDn = [string[]]$page.Ou; Subtree = [bool]$page.Subtree } -OnSuccess {
         param($Result)
         $page = $script:State.DevicesPage
-        $page.Items.Clear()
-        foreach ($row in @($Result | Where-Object { $_ })) { $page.Items.Add($row) }
+        $rows = New-Object -TypeName 'System.Collections.Generic.List[object]'
+        foreach ($row in @($Result | Where-Object { $_ })) { $rows.Add($row) }
+        $page.Items = New-Object -TypeName 'System.Collections.ObjectModel.ObservableCollection[object]' -ArgumentList (, $rows)
+        Set-DevicesPageView
         Update-DevicesPageSummary
         if ($page.LastResult) { $script:Ui.txtDvSummary.Text += " $($page.LastResult)"; $page.LastResult = $null }
         Update-DevicesPageButtonState
@@ -112,7 +121,7 @@ function Start-DevicesPageOwnerChange {
             Start-DevicesPageLoad
             $current = $script:State.CurrentData
             if (-not $simulate -and $current -and @($script:State.ActionContext.Affected | Where-Object { ([string]$_).Equals([string]$current.Ad.DistinguishedName, [System.StringComparison]::OrdinalIgnoreCase) }).Count) {
-                Start-UserLoad -ObjectGuid $current.Ad.ObjectGuid -Force
+                Start-UserLoad -ObjectGuid $current.Ad.ObjectGuid
             }
         } -OnFailure {
             param($Message)
@@ -163,7 +172,7 @@ function Register-DevicesPageEvent {
     $c = $script:Ui
     $c.btnDvPickOu.Add_Click({ Invoke-UiAction { Start-DevicesPagePickOu } })
     $c.btnDvRefresh.Add_Click({ Invoke-UiAction { Start-DevicesPageLoad } })
-    $c.chkDvAttention.Add_Click({ Invoke-UiAction { if ($script:State.DevicesPage.Items) { [System.Windows.Data.CollectionViewSource]::GetDefaultView($script:State.DevicesPage.Items).Refresh() } } })
+    $c.chkDvAttention.Add_Click({ Invoke-UiAction { if ($script:State.DevicesPage.Items) { Set-DevicesPageView } } })
     $c.lstDv.Add_SelectionChanged({ Invoke-UiAction { Update-DevicesPageButtonState } })
     $c.lstDvUserResults.Add_SelectionChanged({ Invoke-UiAction { Update-DevicesPageButtonState } })
     $c.btnDvUserSearch.Add_Click({ Invoke-UiAction { Start-DevicesPageUserSearch } })

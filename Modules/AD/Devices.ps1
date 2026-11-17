@@ -365,9 +365,9 @@ function global:Get-OuDeviceList {
         $enabled = [bool]$computer.Enabled
         $os = [string]$computer.OperatingSystem
         $lapsRaw = [long]$computer.'ms-Mcs-AdmPwdExpirationTime'
-        $lapsExpiresAt = if ($lapsRaw -gt 1) { [datetime]::FromFileTime($lapsRaw) } else { $null }
+        $lapsExpiresAt = if ($lapsRaw -gt 1 -and $lapsRaw -lt 2650467743999999999) { [datetime]::FromFileTime($lapsRaw) } else { $null }
         $lapsState = if ($null -eq $lapsExpiresAt) { 'Yok' } elseif ($lapsExpiresAt -lt $now) { 'Süresi geçmiş' } else { 'Geçerli' }
-        $lastLogon = if ([long]$computer.lastLogonTimestamp -gt 0) { [datetime]::FromFileTime([long]$computer.lastLogonTimestamp) } else { $null }
+        $lastLogon = if ([long]$computer.lastLogonTimestamp -gt 0 -and [long]$computer.lastLogonTimestamp -lt 2650467743999999999) { [datetime]::FromFileTime([long]$computer.lastLogonTimestamp) } else { $null }
         $bitLockerCount = [int]$keyCounts[$dn]
         $managedBy = [string]$computer.managedBy
         [pscustomobject]@{
