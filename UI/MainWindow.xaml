@@ -434,6 +434,26 @@
                                             </StackPanel>
                                         </DockPanel>
                                     </Border>
+                                    <Border Style="{DynamicResource SettingRow}">
+                                        <DockPanel>
+                                            <TextBlock DockPanel.Dock="Left" Text="&#xE895;" Style="{DynamicResource Glyph}" Margin="0,0,16,0"/>
+                                            <CheckBox x:Name="chkMustChangePwd" DockPanel.Dock="Right" Style="{DynamicResource ToggleSwitch}" VerticalAlignment="Center"/>
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock x:Name="lblMustChangePwd" Text="Bir sonraki oturumda parolayı değiştirmeli (User must change password at next logon)"/>
+                                                <TextBlock Text="Kullanıcı ilk oturum açışında yeni parola belirlemek zorunda kalır" Foreground="{DynamicResource TextMutedBrush}" FontSize="12" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                    <Border Style="{DynamicResource SettingRow}">
+                                        <DockPanel>
+                                            <TextBlock DockPanel.Dock="Left" Text="&#xE72E;" Style="{DynamicResource Glyph}" Margin="0,0,16,0"/>
+                                            <CheckBox x:Name="chkCannotChangePwd" DockPanel.Dock="Right" Style="{DynamicResource ToggleSwitch}" VerticalAlignment="Center"/>
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock x:Name="lblCannotChangePwd" Text="Kullanıcı parolayı değiştiremez (User cannot change password)"/>
+                                                <TextBlock Text="Parolayı yalnızca yöneticiler sıfırlayabilir" Foreground="{DynamicResource TextMutedBrush}" FontSize="12" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
                                     <Border Style="{DynamicResource SettingRow}" Margin="0,0,0,20">
                                         <DockPanel>
                                             <TextBlock DockPanel.Dock="Left" Text="&#xE8D7;" Style="{DynamicResource Glyph}" Margin="0,0,16,0"/>

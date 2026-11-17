@@ -507,8 +507,11 @@ function Test-PendingChange {
         elseif (-not $ad.Enabled -and $ad.PreviousOu) { $warnings.Add("Hesap devre dışı: etkinleştirilince kayıtlı eski OU'suna ($($ad.PreviousOu)) döner.") }
         $warnings.Add('OU değişince hesaba farklı GPO ve izinler uygulanabilir.')
     }
-    if ($Changes.AccountFlags.ContainsKey('PasswordNeverExpires') -and $Changes.AccountFlags.PasswordNeverExpires -and $script:State.CurrentData.Password.State -eq 'MustChange') {
-        $warnings.Add('Kullanıcıya "bir sonraki oturumda parola değiştirmeli" atanmış; parola süresiz yapılınca bu zorunluluk uygulanmaz.')
+    if ($Changes.AccountFlags.Count -gt 0) {
+        $finalFlag = @{}
+        foreach ($key in $script:AccountFlagMap.Keys) { $finalFlag[$key] = if ($Changes.AccountFlags.ContainsKey($key)) { [bool]$Changes.AccountFlags[$key] } else { [bool]$script:State.OriginalFlags[$key] } }
+        if ($finalFlag.ChangePasswordAtLogon -and $finalFlag.PasswordNeverExpires) { $errors.Add('"Parola süresiz" açıkken "bir sonraki oturumda parolayı değiştirmeli" seçilemez; birini kapatın.') }
+        if ($finalFlag.ChangePasswordAtLogon -and $finalFlag.CannotChangePassword) { $errors.Add('"Kullanıcı parolayı değiştiremez" açıkken "bir sonraki oturumda parolayı değiştirmeli" seçilemez; kullanıcı oturum açamaz.') }
     }
     if ($Changes.PolicyChanges.Count -gt 0 -and $script:Sync.ExchangeMode -eq 'None') { $errors.Add('Politika değişikliği için Exchange bağlantısı gerekiyor.') }
     if ($Changes.PolicyChanges.ContainsKey('AddressBookPolicy')) { $warnings.Add('Adres defteri politikası değişikliğinin Outlook/OWA tarafında görünmesi zaman alabilir.') }

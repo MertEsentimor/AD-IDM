@@ -118,6 +118,7 @@ function global:Get-UserProfileData {
     $properties = @(
         'GivenName', 'Surname', 'DisplayName', 'Description', 'Office', 'EmailAddress', 'mail', 'HomePhone', 'MobilePhone',
         'UserPrincipalName', 'SamAccountName', 'Enabled', 'LockedOut', 'PasswordNeverExpires', 'pwdLastSet',
+        'CannotChangePassword',
         'lastLogonTimestamp', 'msDS-UserPasswordExpiryTimeComputed', 'proxyAddresses', 'whenCreated',
         'AccountExpirationDate', 'CanonicalName', 'thumbnailPhoto', 'lockoutTime', 'badPwdCount',
         'memberOf', 'primaryGroupID', $Sync.PreviousOuAttribute, $Sync.LeaveAttribute
@@ -148,6 +149,8 @@ function global:Get-UserProfileData {
         WhenCreated           = $user.whenCreated
         AccountExpirationDate = $user.AccountExpirationDate
         PasswordNeverExpires  = [bool]$user.PasswordNeverExpires
+        ChangePasswordAtLogon = ([long]$user.pwdLastSet -eq 0)
+        CannotChangePassword  = [bool]$user.CannotChangePassword
         ParentOu              = Get-ParentDn -DistinguishedName ([string]$user.DistinguishedName)
         PreviousOu            = Get-StoredPreviousOu -Value ([string]$user.($Sync.PreviousOuAttribute))
         DisabledUsersOu       = $null
@@ -404,6 +407,13 @@ function global:Set-UserAccountFlag {
     if ($Flags.ContainsKey('PasswordNeverExpires')) {
         Set-ADUser -Identity $Identity -Server $server -PasswordNeverExpires ([bool]$Flags.PasswordNeverExpires) -ErrorAction Stop
         Write-WorkerLog -Message "PasswordNeverExpires = $([bool]$Flags.PasswordNeverExpires)" -Level Success
+    }
+    # PasswordNeverExpires önce uygulanır: açıkken Set-ADUser -ChangePasswordAtLogon hata verir.
+    foreach ($passwordFlag in @('ChangePasswordAtLogon', 'CannotChangePassword')) {
+        if (-not $Flags.ContainsKey($passwordFlag)) { continue }
+        $passwordFlagParams = @{ $passwordFlag = [bool]$Flags[$passwordFlag] }
+        Set-ADUser -Identity $Identity -Server $server @passwordFlagParams -ErrorAction Stop
+        Write-WorkerLog -Message "$passwordFlag = $([bool]$Flags[$passwordFlag])" -Level Success
     }
     if (-not $Flags.ContainsKey('Enabled')) { return }
     $user = Get-ADUser -Identity $Identity -Server $server -Properties $attribute -ErrorAction Stop

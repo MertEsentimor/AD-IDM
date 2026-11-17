@@ -57,6 +57,8 @@ $script:FieldMap = [ordered]@{
 }
 $script:AccountFlagMap = [ordered]@{
     Enabled              = @{ Check = 'chkAccountEnabled'; Label = 'lblAccountEnabled'; Text = 'Hesap etkin' }
+    ChangePasswordAtLogon = @{ Check = 'chkMustChangePwd'; Label = 'lblMustChangePwd'; Text = 'Bir sonraki oturumda parolayı değiştirmeli (User must change password at next logon)' }
+    CannotChangePassword = @{ Check = 'chkCannotChangePwd'; Label = 'lblCannotChangePwd'; Text = 'Kullanıcı parolayı değiştiremez (User cannot change password)' }
     PasswordNeverExpires = @{ Check = 'chkPwdNeverExpires'; Label = 'lblPwdNeverExpires'; Text = 'Parola süresiz (Password never expires)' }
 }
 $script:CasMap = [ordered]@{
