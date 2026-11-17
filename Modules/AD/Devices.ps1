@@ -286,3 +286,72 @@ function global:Get-ProfileDeviceData {
         return [pscustomobject]@{ Devices = @(); DevicesError = $_.Exception.Message }
     }
 }
+function global:Get-OuDeviceList {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)][string[]]$OuDn,
+        [Parameter()][bool]$Subtree = $true
+    )
+    $maxDevices = 5000
+    $server = Get-PdcEmulator
+    $scope = if ($Subtree) { 'Subtree' } else { 'OneLevel' }
+    $properties = @('managedBy', 'lastLogonTimestamp', 'Enabled', 'ms-Mcs-AdmPwdExpirationTime', 'OperatingSystem')
+    $computers = [ordered]@{}
+    $seenKeys = @{}
+    $keyCounts = @{}
+    $done = 0
+    foreach ($ou in $OuDn) {
+        $done++
+        Set-WorkerProgress -Percent ([int](100 * ($done - 1) / @($OuDn).Count)) -Status "Cihazlar okunuyor ($done/$(@($OuDn).Count)): $ou"
+        foreach ($computer in @(Get-ADComputer -Filter * -SearchBase $ou -SearchScope $scope -Properties $properties -ResultSetSize ($maxDevices + 1) -Server $server -ErrorAction Stop)) {
+            if ($computer) { $computers[$computer.ObjectGUID.ToString()] = $computer }
+        }
+        # shortcut: yetkisiz operatörde BitLocker sayısı 0 görünür, yetkisiz kullanım olursa yetki denetimi ekle
+        foreach ($key in @(Get-ADObject -LDAPFilter '(objectClass=msFVE-RecoveryInformation)' -SearchBase $ou -SearchScope Subtree -Server $server -ErrorAction Stop)) {
+            $keyDn = [string]$key.DistinguishedName
+            if (-not $keyDn -or $seenKeys.ContainsKey($keyDn)) { continue }
+            $seenKeys[$keyDn] = $true
+            $parent = Get-ParentDn -DistinguishedName $keyDn
+            $keyCounts[$parent] = 1 + [int]$keyCounts[$parent]
+        }
+    }
+    $selected = @($computers.Values)
+    if ($selected.Count -gt $maxDevices) {
+        Write-WorkerLog -Message "Seçilen OU'larda $maxDevices üzerinde bilgisayar var; ilk $maxDevices gösteriliyor. OU seçimini daraltın." -Level Warning
+        $selected = @($selected | Select-Object -First $maxDevices)
+    }
+    $now = Get-Date
+    $devices = foreach ($computer in $selected) {
+        $dn = [string]$computer.DistinguishedName
+        $enabled = [bool]$computer.Enabled
+        $os = [string]$computer.OperatingSystem
+        $lapsRaw = [long]$computer.'ms-Mcs-AdmPwdExpirationTime'
+        $lapsExpiresAt = if ($lapsRaw -gt 1) { [datetime]::FromFileTime($lapsRaw) } else { $null }
+        $lapsState = if ($null -eq $lapsExpiresAt) { 'Yok' } elseif ($lapsExpiresAt -lt $now) { 'Süresi geçmiş' } else { 'Geçerli' }
+        $lastLogon = if ([long]$computer.lastLogonTimestamp -gt 0) { [datetime]::FromFileTime([long]$computer.lastLogonTimestamp) } else { $null }
+        $bitLockerCount = [int]$keyCounts[$dn]
+        $managedBy = [string]$computer.managedBy
+        [pscustomobject]@{
+            Name              = [string]$computer.Name
+            DistinguishedName = $dn
+            ObjectGuid        = $computer.ObjectGUID.ToString()
+            Enabled           = $enabled
+            StatusText        = if ($enabled) { 'Etkin' } else { 'Devre dışı' }
+            Ou                = Get-ParentDn -DistinguishedName $dn
+            OperatingSystem   = $os
+            LastLogon         = $lastLogon
+            LastLogonText     = if ($lastLogon) { $lastLogon.ToString('dd.MM.yyyy') } else { '-' }
+            ManagedBy         = $managedBy
+            OwnerName         = if ($managedBy) { Get-DnCommonName -DistinguishedName $managedBy } else { '-' }
+            BitLockerCount    = $bitLockerCount
+            BitLockerText     = if ($bitLockerCount) { "$bitLockerCount anahtar" } else { 'Yok' }
+            LapsExpiresAt     = $lapsExpiresAt
+            LapsText          = switch ($lapsState) { 'Yok' { 'Yok' } 'Süresi geçmiş' { "Süresi geçmiş ($($lapsExpiresAt.ToString('dd.MM.yyyy')))" } default { $lapsExpiresAt.ToString('dd.MM.yyyy HH:mm') } }
+            LapsState         = $lapsState
+            NeedsAttention    = ($enabled -and ($os -notmatch 'Server') -and ($bitLockerCount -eq 0 -or $lapsState -ne 'Geçerli'))
+        }
+    }
+    Set-WorkerProgress -Percent 100 -Status "$(@($devices).Count) cihaz okundu."
+    return @($devices | Sort-Object -Property Name)
+}
