@@ -372,6 +372,15 @@ Assert-True ($results[0].Message -eq 'simüle edildi') 'WhatIf iletilir'
 $results = @(Set-DeviceOwnerBulk -ComputerDn 'CN=OK1,OU=A,DC=test,DC=local' -OwnerDn '' -Confirm:$false)
 Assert-True ($results[0].Success -and $results[0].Message -eq 'bağ kaldırıldı') 'Boş sahip bağı kaldırır'
 Assert-True ((Find-DirectoryUser -Query 'ali')[0].DistinguishedName -eq 'CN=Ali,OU=U,DC=test,DC=local') 'Kullanıcı aramasında DN var'
+$previousAuditState = $script:State
+$script:State = @{ CurrentData = @{ Ad = @{ SamAccountName = 'profiluser'; DistinguishedName = 'CN=Profil,DC=test,DC=local'; ObjectGuid = 'g'; UserPrincipalName = 'p@test' } } }
+$ctx = Get-AuditTaskContext -Command 'Get-DeviceSecret' -Arguments @{ ComputerDn = 'CN=PC1,OU=A,DC=test,DC=local'; DeviceName = 'PC1' }
+Assert-True ($ctx.Action -eq 'device.secrets_view' -and $ctx.Target.target_device -eq 'PC1' -and $ctx.Target.target_dn -eq 'CN=PC1,OU=A,DC=test,DC=local' -and -not $ctx.Target.Contains('target_user')) 'Parola görüntüleme denetimi, profil kullanıcısı hedef değil'
+$ctx = Get-AuditTaskContext -Command 'Set-DeviceOwnerBulk' -Arguments @{ ComputerDn = @('CN=PC1,OU=A,DC=test,DC=local'); OwnerDn = 'CN=Ali,OU=U,DC=test,DC=local' }
+Assert-True ($ctx.Action -eq 'device.link' -and $ctx.Target.target_owner -eq 'CN=Ali,OU=U,DC=test,DC=local' -and $ctx.Target.target_device -eq 'PC1' -and -not $ctx.Target.Contains('target_user')) 'Toplu atama denetimi'
+$ctx = Get-AuditTaskContext -Command 'Set-DeviceOwnerBulk' -Arguments @{ ComputerDn = @('CN=PC1,OU=A,DC=test,DC=local'); OwnerDn = '' }
+Assert-True ($ctx.Action -eq 'device.unlink') 'Toplu bağ kaldırma denetimi'
+$script:State = $previousAuditState
 ${function:global:Get-ADComputer} = $script:SecFakes.C
 ${function:global:Get-ADObject} = $script:SecFakes.O
 ${function:global:Set-ADComputer} = $script:SecFakes.S
