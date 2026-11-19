@@ -37,7 +37,7 @@ $pstPath = Join-Path -Path $temporaryFolder -ChildPath 'ayse.pst'
 $script:Requests = @()
 $script:StatPath = $pstPath
 function global:New-MailboxExportRequest { [void]$script:Calls.Add('New-MailboxExportRequest') }
-function global:Get-MailboxExportRequest { param($Mailbox, $ErrorAction) $script:Requests }
+function global:Get-MailboxExportRequest { param($Mailbox, $ResultSize, $ErrorAction) $script:Requests }
 function global:Get-MailboxExportRequestStatistics { param([Parameter(ValueFromPipeline = $true)]$InputObject) process { [pscustomobject]@{ FilePath = $script:StatPath } } }
 function global:Remove-MailboxExportRequest { param([Parameter(ValueFromPipeline = $true)]$InputObject, $Confirm) process { [void]$script:Calls.Add('Remove-MailboxExportRequest') } }
 function global:Get-Mailbox { param($Identity, $ErrorAction) [pscustomobject]@{ DistinguishedName = 'CN=Ayse,DC=test'; ArchiveGuid = [guid]::Empty } }
@@ -73,10 +73,40 @@ $script:Requests = @(New-Request -Status 'InProgress')
 [void](Complete-MailboxPstExport -Alias 'ayse' -Action Clear -Confirm:$false)
 Assert-True ($script:Calls -contains 'Remove-MailboxExportRequest' -and $script:Calls -notcontains 'Disable-Mailbox') 'İstek kaldırma posta kutusuna dokunmaz'
 
+# ---- İşler sayfası: tüm PST + taşıma istekleri
+$script:Requests = @(
+    [pscustomobject]@{ Name = 'ADEUM-PST-1'; Status = 'Completed'; Mailbox = 'test/ayse' },
+    [pscustomobject]@{ Name = 'Diger-Export'; Status = 'InProgress'; Mailbox = 'test/mehmet' },
+    [pscustomobject]@{ Name = 'Eski-Export'; Status = 'Completed'; Mailbox = 'test/ali' })
+$script:Moves = @(
+    [pscustomobject]@{ Alias = 'zeynep'; Identity = 'test/zeynep'; ExchangeGuid = 'g1'; Status = 'InProgress'; SourceDatabase = 'DB1'; TargetDatabase = 'DB2' },
+    [pscustomobject]@{ Alias = 'can'; ExchangeGuid = 'g2'; Status = 'Completed'; SourceDatabase = 'DB1'; TargetDatabase = 'DB3' })
+function global:Get-MoveRequest { param($ResultSize, $ErrorAction) $script:Moves }
+function global:Get-MoveRequestStatistics { param($Identity, $ErrorAction) if ($Identity -ne 'test/zeynep') { throw 'bulunamadı' }; [pscustomobject]@{ PercentComplete = 40; StatusDetail = 'CopyingMessages' } }
+$ownedOnly = @(Get-PstExportStatus)
+Assert-True ($ownedOnly.Count -eq 1 -and $ownedOnly[0].Owned) 'Sayfa kapalıyken yalnızca bu aracın PST istekleri sorgulanır'
+$running = @(Get-PstExportStatus -AllJobs $true)
+Assert-True ((($running | ForEach-Object { $_.Alias }) -join ',') -eq 'ayse,mehmet,zeynep') "Tüm işler: kendi PST'ler + süren diğer işler ($(($running | ForEach-Object { $_.Alias }) -join ','))"
+$moveRow = $running | Where-Object { $_.JobType -eq 'Move' }
+Assert-True ($moveRow.PercentComplete -eq 40 -and $moveRow.FilePath -eq 'DB1 -> DB2' -and -not $moveRow.Owned) 'Taşıma isteği ilerleme ve hedefle döner'
+Assert-True (@(Get-PstExportStatus -AllJobs $true -IncludeFinished $true).Count -eq 5) 'Bitenleri göster tüm istekleri getirir'
+
+# ---- İş iptali: silinmiş posta kutusunda GUID + kuyruk yedeği
+$script:Calls.Clear()
+function global:Remove-MailboxExportRequest { param($Identity, $RequestQueue, $RequestGuid, $Confirm, $ErrorAction) if ($Identity) { if ($Identity -like '*silinmis*') { throw 'couldn''t be found' }; [void]$script:Calls.Add("ExpId:$Identity") } else { [void]$script:Calls.Add("ExpGuid:$RequestQueue/$RequestGuid") } }
+function global:Remove-MoveRequest { param($Identity, $MoveRequestQueue, $MailboxGuid, $Confirm, $ErrorAction) if ($Identity) { throw 'couldn''t be found' }; if ($MoveRequestQueue -eq 'YOK') { throw 'queue yok' }; [void]$script:Calls.Add("MoveGuid:$MoveRequestQueue/$MailboxGuid") }
+$jobResults = @(Remove-ExchangeJob -Job 'Export|test/mehmet\X|r1|DB1', 'Export|test/silinmis\Y|r2|DB2', 'Move|test/eski|m1|DB3', 'Move|test/eski2|m2|YOK' -Confirm:$false)
+Assert-True ((($script:Calls) -join ',') -eq 'ExpId:test/mehmet\X,ExpGuid:DB2/r2,MoveGuid:DB3/m1') "Önce kimlik, olmazsa GUID ile kaldırılır ($($script:Calls -join ','))"
+Assert-True (@($jobResults | Where-Object { -not $_.Removed }).Count -eq 1 -and ($jobResults | Where-Object { -not $_.Removed }).Error -eq 'queue yok') 'Kaldırılamayan iş hatasıyla raporlanır'
+$script:Calls.Clear()
+[void](Remove-ExchangeJob -Job 'Move|test/eski|m1|DB3' -Confirm:$false -WhatIf)
+Assert-True ($script:Calls.Count -eq 0) 'Simülasyon işi kaldırmaz'
+
 # ---- Offboarding adım sırası
 $script:Calls.Clear()
 $script:FailFlag = $false
-function global:Set-UserAccountFlag { [CmdletBinding()] param($Identity, $Flags, $Confirm) [void]$script:Calls.Add('AccountFlags'); if ($script:FailFlag) { throw 'taşınamadı' } }
+function global:Set-UserAccountFlag { [CmdletBinding()] param($Identity, $Flags, $DeferDisabledOuMove, $Confirm) [void]$script:Calls.Add('AccountFlags'); if ($script:FailFlag) { throw 'taşınamadı' } }
+function global:Move-UserToDisabledOu { [CmdletBinding()] param($Identity, $Confirm) [void]$script:Calls.Add('DisabledMove') }
 function global:Clear-UserGroupMembership { [CmdletBinding()] param($Identity, $Confirm) [void]$script:Calls.Add('GroupCleanup'); [pscustomobject]@{ Removed = [string[]]@('G1'); Failed = [string[]]@(); RemovedDn = [string[]]@('CN=G1,DC=test') } }
 function global:Start-MailboxPstExport { [CmdletBinding()] param($Identity, $FilePath, $RemoveMailbox, $Confirm) [void]$script:Calls.Add("Pst:$RemoveMailbox"); [pscustomobject]@{ Alias = 'ayse'; FilePath = $FilePath; Archive = $false; RemoveMailbox = $RemoveMailbox } }
 $offboard = @{
@@ -84,14 +114,14 @@ $offboard = @{
     DisableCleanup = @{ RemoveGroups = $true; Pst = @{ FilePath = '\\fs\pst\ayse.pst'; RemoveMailbox = $true } }
 }
 $results = @(Invoke-UserUpdate @offboard)
-Assert-True (($script:Calls -join ',') -eq 'AccountFlags,GroupCleanup,Pst:True') "Sıra: hesap, gruplar, PST ($($script:Calls -join ','))"
+Assert-True (($script:Calls -join ',') -eq 'AccountFlags,GroupCleanup,Pst:True,DisabledMove') "Sıra: hesap, gruplar, PST, en son OU taşıma ($($script:Calls -join ','))"
 Assert-True (@($results | Where-Object { -not $_.Success }).Count -eq 0 -and ($results | Where-Object { $_.Step -eq 'Grup temizliği' }).Data.RemovedDn[0] -eq 'CN=G1,DC=test') 'Çıkarılan gruplar sonuçta döner'
 $script:Calls.Clear()
 $script:FailFlag = $true
 $failed = @(Invoke-UserUpdate @offboard)
 $script:FailFlag = $false
 Assert-True (($script:Calls -join ',') -eq 'AccountFlags') 'Hesap kapatılamazsa gruplara ve PST''ye dokunulmaz'
-Assert-True (@($failed | Where-Object { -not $_.Success }).Count -eq 3 -and @($failed | Where-Object { $_.Message -match 'devre dışı bırakılamadığı' }).Count -eq 2) 'Atlanan adımlar başarısız raporlanır'
+Assert-True (@($failed | Where-Object { -not $_.Success }).Count -eq 4 -and @($failed | Where-Object { $_.Message -match 'devre dışı bırakılamadığı' }).Count -eq 3) 'Atlanan adımlar başarısız raporlanır'
 $script:Calls.Clear()
 [void](Invoke-UserUpdate -ObjectGuid 'g' -DisableCleanup $offboard.DisableCleanup -ExchangeIdentity 'ayse' -Confirm:$false)
 Assert-True ($script:Calls.Count -eq 0) 'Hesap kapatılmıyorsa temizlik seçenekleri yok sayılır'
@@ -101,6 +131,10 @@ function global:Move-UserToOu { [CmdletBinding()] param($Identity, $TargetOu, $C
 $script:Calls.Clear()
 $moved = @(Invoke-UserUpdate -ObjectGuid 'g' -AccountFlags @{ Enabled = $true } -MoveToOu 'OU=Yeni,DC=test' -Confirm:$false)
 Assert-True (($script:Calls -join ',') -eq 'AccountFlags,Move:OU=Yeni,DC=test' -and @($moved | Where-Object { -not $_.Success }).Count -eq 0) "Sıra: hesap açılır, sonra OU taşınır ($($script:Calls -join ','))"
+function global:Start-MailboxPstExport { [CmdletBinding()] param($Identity, $FilePath, $RemoveMailbox, $Confirm) [void]$script:Calls.Add("PstId:$Identity") }
+$script:Calls.Clear()
+[void](Invoke-UserUpdate -ObjectGuid 'g' -AccountFlags @{ Enabled = $false } -ExchangeIdentity 'CN=Ayse,OU=Eski,DC=test' -DisableCleanup @{ RemoveGroups = $true; Pst = @{ FilePath = '\\fs\pst\a.pst' } } -Confirm:$false)
+Assert-True (($script:Calls -join ',') -eq 'AccountFlags,GroupCleanup,PstId:CN=Ayse,OU=Eski,DC=test,DisabledMove') "Devre dışı bırakmada OU taşıma PST'den sonra, en sonda ($($script:Calls -join ','))"
 $script:Calls.Clear()
 $script:FailFlag = $true
 $moveFailed = @(Invoke-UserUpdate -ObjectGuid 'g' -AccountFlags @{ Enabled = $true } -MoveToOu 'OU=Yeni,DC=test' -Confirm:$false)

@@ -5,6 +5,7 @@
     $ui.chkDisableGroups.IsChecked = $false
     $ui.chkDisablePst.IsChecked = $false
     $ui.chkPstRemoveMailbox.IsChecked = $true
+    $ui.chkPstExportRemoveMailbox.IsChecked = $false
     $sam = if ($script:State.CurrentData) { [string]$script:State.CurrentData.Ad.SamAccountName } else { '' }
     $ui.txtPstFileName.Text = if ($sam) { '{0}_{1}.pst' -f $sam, (Get-Date).ToString('yyyyMMdd') } else { '' }
     $ui.txtPstExportName.Text = $ui.txtPstFileName.Text
@@ -163,18 +164,20 @@ function Start-ManualPstExport {
     $folder = ([string]$script:Ui.txtPstExportFolder.Text).Trim().TrimEnd('\')
     $name = ([string]$script:Ui.txtPstExportName.Text).Trim()
     if ($name -and $name -notmatch '(?i)\.pst$') { $name += '.pst' }
-    $cleanup = @{ Pst = @{ Folder = $folder; FileName = $name; FilePath = $(if ($folder -and $name) { "$folder\$name" } else { '' }); RemoveMailbox = $false } }
+    $removeMailbox = [bool]$script:Ui.chkPstExportRemoveMailbox.IsChecked
+    if ($removeMailbox -and $data.Ad.Enabled) { [void](Show-MessageDialog -Message 'Hesap etkin: posta kutusu yalnızca devre dışı hesaplarda otomatik silinebilir. Seçeneği kaldırın veya hesabı önce devre dışı bırakın.' -Icon Warning); return }
+    $cleanup = @{ Pst = @{ Folder = $folder; FileName = $name; FilePath = $(if ($folder -and $name) { "$folder\$name" } else { '' }); RemoveMailbox = $removeMailbox } }
     $errors = New-Object -TypeName 'System.Collections.Generic.List[string]'
     $warnings = New-Object -TypeName 'System.Collections.Generic.List[string]'
     Test-DisableCleanup -Cleanup $cleanup -Errors $errors -Warnings $warnings
     if ($errors.Count -gt 0) { [void](Show-MessageDialog -Message ("PST dışa aktarma başlatılamadı:`n`n| " + ($errors -join "`n| ")) -Icon Warning); return }
     $path = $cleanup.Pst.FilePath
     $archive = $exchange.Archive -and $exchange.Archive.Enabled
-    $message = "'$($data.Ad.SamAccountName)' posta kutusu PST'ye aktarılacak (New-MailboxExportRequest).`n`n| Dosya: $path$(if ($archive) { "`n| Arşiv: $($path -replace '(?i)\.pst$', '_Arsiv.pst')" })`n| Hesap ve posta kutusu değişmez.`n`n$($warnings -join "`n")"
-    if (-not (Show-ConfirmDialog -Message $message -Title 'PST Dışa Aktar')) { return }
+    $message = "'$($data.Ad.SamAccountName)' posta kutusu PST'ye aktarılacak (New-MailboxExportRequest).`n`n| Dosya: $path$(if ($archive) { "`n| Arşiv: $($path -replace '(?i)\.pst$', '_Arsiv.pst')" })`n| $(if ($removeMailbox) { 'Dışa aktarma tamamlanıp PST doğrulanınca posta kutusu silinir (Disable-Mailbox; AD hesabı kalır).' } else { 'Hesap ve posta kutusu değişmez.' })`n`n$($warnings -join "`n")"
+    if (-not (Show-ConfirmDialog -Message $message -Title 'PST Dışa Aktar' -Warning:$removeMailbox)) { return }
     if (-not $script:State.Options.WhatIf) { Save-AppSetting -Values @{ PstFolder = $folder } }
     $script:State.ActionContext = @{ Simulate = [bool]$script:State.Options.WhatIf; Sam = $data.Ad.SamAccountName }
-    [void](Invoke-BackgroundTask -Name 'PST dışa aktarma isteği oluşturuluyor' -Command 'Start-MailboxPstExport' -Arguments (Get-ActionArgument @{ Identity = [string]$exchange.Identity; FilePath = $path; RemoveMailbox = $false }) -OnSuccess {
+    [void](Invoke-BackgroundTask -Name 'PST dışa aktarma isteği oluşturuluyor' -Command 'Start-MailboxPstExport' -Arguments (Get-ActionArgument @{ Identity = [string]$exchange.Identity; FilePath = $path; RemoveMailbox = $removeMailbox }) -OnSuccess {
             param($Result)
             if ($script:State.ActionContext.Simulate) { [void](Show-MessageDialog -Message 'PST dışa aktarma simüle edildi. Hiçbir istek oluşturulmadı.' -Icon Information); return }
             $script:State.PstScanned = $false
@@ -201,14 +204,18 @@ function Get-PstStatusText {
 function Start-PstPoll {
     [CmdletBinding()]
     param([Parameter()][switch]$Force)
-    if ($script:Sync.ExchangeMode -ne 'OnPremises' -or -not $script:Sync.PstExportReady) {
+    $onPage = [bool]$script:Ui.navPst.IsChecked
+    if ($script:Sync.ExchangeMode -ne 'OnPremises' -or (-not $script:Sync.PstExportReady -and -not $onPage)) {
         $script:State.PstScanned = $false
+        $script:State.ExchangeJobs = @()
         if ($script:State.PstExports.Count -gt 0) { $script:State.PstExports = @{}; Update-PstMonitor }
         return
     }
     if ($script:TaskEngine.CurrentJob) { return }
-    if (-not $Force -and $script:State.PstScanned -and $script:State.PstExports.Count -eq 0 -and -not $script:Ui.navPst.IsChecked) { return }
-    [void](Invoke-BackgroundTask -Name 'PST dışa aktarma izleme' -Command 'Get-PstExportStatus' -Silent -OnSuccess {
+    if (-not $Force -and $script:State.PstScanned -and $script:State.PstExports.Count -eq 0 -and -not $onPage) { return }
+    # Tüm Exchange işleri yalnızca sayfa açıkken sorgulanır; arka planda sadece bu aracın PST istekleri izlenir.
+    $arguments = @{ AllJobs = $onPage; IncludeFinished = [bool]$script:Ui.chkPeFinished.IsChecked }
+    [void](Invoke-BackgroundTask -Name 'Exchange işleri izleme' -Command 'Get-PstExportStatus' -Arguments $arguments -Silent -OnSuccess {
             param($Result)
             Receive-PstStatus -Results $Result
         })
@@ -219,7 +226,8 @@ function Receive-PstStatus {
     $script:State.PstScanned = $true
     $previous = $script:State.PstExports
     $current = @{}
-    foreach ($item in @($Results | Where-Object { $_ -and $_.Key })) {
+    $script:State.ExchangeJobs = @($Results | Where-Object { $_ -and $_.Key })
+    foreach ($item in @($script:State.ExchangeJobs | Where-Object { $_.Owned })) {
         $current[[string]$item.Key] = $item
         $old = $previous[[string]$item.Key]
         $label = "$($item.Alias)$(if ($item.Archive) { ' (arşiv)' })"
@@ -298,10 +306,15 @@ function Update-PstExportView {
     param()
     $c = $script:Ui
     $selectedKey = if ($c.lstPe.SelectedItem) { [string]$c.lstPe.SelectedItem.Key } else { $null }
-    $rows = foreach ($item in ($script:State.PstExports.Values | Sort-Object -Property Alias, Archive)) {
+    $showFinished = [bool]$c.chkPeFinished.IsChecked
+    $rows = foreach ($item in ($script:State.ExchangeJobs | Sort-Object -Property IsFinal, JobType, Alias, Archive)) {
+        if ($item.IsFinal -and -not $item.Owned -and -not $showFinished) { continue }
         $attempt = $script:State.PstAttempts[[string]$item.Alias]
         $kind = if ($item.Status -eq 'Failed') { 'Failed' } elseif ($item.IsFinal) { 'Done' } else { 'Running' }
-        $after = if (-not $item.RemoveMailbox) { 'Posta kutusu kalır' }
+        $isMove = $item.JobType -eq 'Move'
+        $after = if ($isMove) { 'Veritabanı taşıma (Veritabanı ve Taşıma sekmesinden yönetilir)' }
+        elseif (-not $item.Owned) { 'Bu araç dışında başlatıldı' }
+        elseif (-not $item.RemoveMailbox) { 'Posta kutusu kalır' }
         elseif ($attempt -and $attempt.Error) { 'Silinemedi: ' + $attempt.Error }
         elseif ($item.IsFinal -and $item.Status -eq 'Completed') { 'Siliniyor...' }
         elseif ($item.Status -eq 'CompletedWithWarning') { 'Uyarı nedeniyle beklemede: kontrol edip elle silin' }
@@ -309,23 +322,25 @@ function Update-PstExportView {
         [pscustomobject]@{
             Key          = [string]$item.Key
             Alias        = [string]$item.Alias
-            TypeText     = if ($item.Archive) { 'Arşiv' } else { 'Posta kutusu' }
+            TypeText     = if ($isMove) { 'Taşıma' } elseif ($item.Archive) { 'PST (arşiv)' } else { 'PST' }
             FilePath     = [string]$item.FilePath
-            StatusText   = (Get-PstStatusText -Status $item.Status) + $(if ($item.StatusDetail -and -not $item.IsFinal) { " ($($item.StatusDetail))" } else { '' }) + $(if ($item.FailureMessage) { ": $($item.FailureMessage)" } else { '' })
-            Percent      = [int]$item.PercentComplete
+            StatusText   = $(if ($isMove) { Get-MoveStatusText -Status $item.Status } else { Get-PstStatusText -Status $item.Status }) + $(if ($item.StatusDetail -and -not $item.IsFinal) { " ($($item.StatusDetail))" } else { '' }) + $(if ($item.FailureMessage) { ": $($item.FailureMessage)" } else { '' })
+            Percent      = [double]$item.PercentComplete
             SizeText     = "$($item.Transferred) / $($item.Estimated)"
             AfterText    = $after
             Kind         = $kind
             Status       = [string]$item.Status
             RemoveMailbox = [bool]$item.RemoveMailbox
+            Owned        = [bool]$item.Owned
+            JobSpec      = '{0}|{1}|{2}|{3}' -f $item.JobType, $item.RequestId, $item.RequestGuid, $item.RequestQueue
         }
     }
     $rows = @($rows)
     $c.lstPe.ItemsSource = $rows
     if ($selectedKey) { $c.lstPe.SelectedItem = $rows | Where-Object { $_.Key -eq $selectedKey } | Select-Object -First 1 }
     $c.txtPeEmpty.Visibility = if ($rows.Count -eq 0) { 'Visible' } else { 'Collapsed' }
-    $c.txtPeSummary.Text = if (-not $script:Sync.PstExportReady) { 'Exchange On-Premises bağlantısı ve Mailbox Import Export rolü gerekiyor.' }
-    else { "$($rows.Count) istek  |  $(@($rows | Where-Object { $_.Kind -eq 'Running' }).Count) sürüyor  |  30 saniyede bir yenilenir  |  son kontrol $((Get-Date).ToString('HH:mm:ss'))" }
+    $c.txtPeSummary.Text = if ($script:Sync.ExchangeMode -ne 'OnPremises') { 'Exchange On-Premises bağlantısı gerekiyor.' }
+    else { "$(if (-not $script:Sync.PstExportReady) { 'PST istekleri görünmüyor (Mailbox Import Export rolü yok)  |  ' })$($rows.Count) iş  |  $(@($rows | Where-Object { $_.Kind -eq 'Running' }).Count) sürüyor  |  30 saniyede bir yenilenir  |  son kontrol $((Get-Date).ToString('HH:mm:ss'))" }
 }
 function Start-DisabledUserLoad {
     [CmdletBinding()]
@@ -490,11 +505,29 @@ function Start-PendingEnable {
     Update-ChangeIndicator
     Start-UserUpdate
 }
+function Remove-SelectedExchangeJob {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][object[]]$Items)
+    if ($script:TaskEngine.CurrentJob) { [void](Show-MessageDialog -Message 'Başka bir işlem sürüyor; biraz sonra tekrar deneyin.' -Icon Information); return }
+    $lines = @($Items | Select-Object -First 15 | ForEach-Object { "| $($_.Alias)  -  $($_.TypeText)  -  $($_.StatusText)" })
+    if ($Items.Count -gt 15) { $lines += "| ... ve $($Items.Count - 15) iş daha" }
+    $running = @($Items | Where-Object { $_.Kind -eq 'Running' }).Count
+    $message = "$($Items.Count) Exchange işi kaldırılacak (Remove-MailboxExportRequest / Remove-MoveRequest).`n`n$($lines -join "`n")`n`n$(if ($running) { "Süren $running iş iptal edilir. " })Posta kutularına ve oluşmuş PST dosyalarına dokunulmaz. Posta kutusu silinmiş işler istek GUID'i ile kaldırılır."
+    if (-not (Show-ConfirmDialog -Message $message -Title 'İşleri Kaldır' -Warning)) { return }
+    [void](Invoke-BackgroundTask -Name "Exchange işleri kaldırılıyor ($($Items.Count))" -Command 'Remove-ExchangeJob' -Arguments (Get-ActionArgument @{ Job = [string[]]@($Items | ForEach-Object { $_.JobSpec }) }) -OnSuccess {
+            param($Result)
+            $failed = @($Result | Where-Object { $_ -and $_.PSObject.Properties['Removed'] -and -not $_.Removed })
+            if ($failed.Count -gt 0) { [void](Show-MessageDialog -Message ("Kaldırılamayan işler:`n`n" + (($failed | ForEach-Object { "| $($_.RequestId): $($_.Error)" }) -join "`n")) -Icon Warning) }
+            $script:State.PstScanned = $false
+            Start-PstPoll -Force
+        })
+}
 function Remove-SelectedPstMailbox {
     [CmdletBinding()]
     param()
     $item = $script:Ui.lstPe.SelectedItem
     if (-not $item) { $script:Ui.txtPeSummary.Text = 'Listeden bir istek seçin.'; return }
+    if (-not $item.Owned) { [void](Show-MessageDialog -Message 'Bu işlem yalnızca bu araçla başlatılan PST dışa aktarmalarında yapılabilir. Taşıma isteklerini Veritabanı ve Taşıma sekmesinden yönetin.' -Icon Information); return }
     $all = @($script:State.PstExports.Values | Where-Object { $_.Alias -eq $item.Alias })
     $notDone = @($all | Where-Object { $_.Status -notin 'Completed', 'CompletedWithWarning' })
     if ($notDone.Count -gt 0) { [void](Show-MessageDialog -Message "'$($item.Alias)' için dışa aktarma henüz tamamlanmadı; posta kutusu silinemez." -Icon Warning); return }
@@ -506,8 +539,15 @@ function Remove-SelectedPstMailbox {
 function Clear-SelectedPstRequest {
     [CmdletBinding()]
     param()
-    $item = $script:Ui.lstPe.SelectedItem
-    if (-not $item) { $script:Ui.txtPeSummary.Text = 'Listeden bir istek seçin.'; return }
+    $items = @($script:Ui.lstPe.SelectedItems)
+    if ($items.Count -eq 0) { $script:Ui.txtPeSummary.Text = 'Listeden bir veya daha fazla iş seçin.'; return }
+    $item = $items[0]
+    if (@($items | Where-Object { -not $_.Owned }).Count -gt 0) {
+        if (@($items | Where-Object { $_.Owned }).Count -gt 0) { [void](Show-MessageDialog -Message 'Bu araçla başlatılan PST istekleri diğer işlerle birlikte kaldırılamaz; onları ayrı seçin.' -Icon Information); return }
+        Remove-SelectedExchangeJob -Items $items
+        return
+    }
+    if ($items.Count -gt 1) { [void](Show-MessageDialog -Message 'Bu araçla başlatılan PST isteklerini tek tek kaldırın.' -Icon Information); return }
     $message = "'$($item.Alias)' için PST dışa aktarma isteği kaldırılacak (Remove-MailboxExportRequest).`n`n| Durum: $($item.StatusText)`n| PST dosyası ve posta kutusu olduğu gibi kalır$(if ($item.Kind -eq 'Running') { '; süren aktarım iptal edilir' }).`n| Posta kutusu artık otomatik silinmez."
     if (-not (Show-ConfirmDialog -Message $message -Title 'İsteği Kaldır')) { return }
     Start-PstCompletion -Alias $item.Alias -Action Clear

@@ -49,7 +49,7 @@
                     <RadioButton x:Name="navHome" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE80F;" Content="Ana Sayfa" IsChecked="True"/>
                     <RadioButton x:Name="navUsers" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE716;" Content="Kullanıcılar"/>
                     <RadioButton x:Name="navLeave" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE787;" Content="İzin Planı"/>
-                    <RadioButton x:Name="navPst" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE896;" Content="PST"/>
+                    <RadioButton x:Name="navPst" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE896;" Content="İşler"/>
                     <RadioButton x:Name="navDevices" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE7F8;" Content="Cihazlar"/>
                     <RadioButton x:Name="navDisabled" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE8F8;" Content="Devre Dışı"/>
                     <RadioButton x:Name="navReports" GroupName="Navigation" Style="{DynamicResource NavRailButton}" Tag="&#xE9F9;" Content="Raporlar"/>
@@ -1136,8 +1136,9 @@
                                             <Button x:Name="btnPstExport" Tag="&#xE896;" Content="PST Al" Style="{DynamicResource PrimaryButton}" VerticalAlignment="Bottom" Margin="0,0,8,8"/>
                                             <Button x:Name="btnPstExportOpen" Tag="&#xE9D9;" Content="İlerlemeyi Göster" VerticalAlignment="Bottom" Margin="0,0,0,8"/>
                                         </WrapPanel>
+                                        <CheckBox x:Name="chkPstExportRemoveMailbox" Margin="0,0,0,10" Content="PST alındıktan sonra posta kutusunu sil (yalnızca devre dışı hesaplarda)"/>
                                         <TextBlock x:Name="txtPstExportInfo" Style="{DynamicResource HintText}" Margin="0,-8,0,0" TextWrapping="Wrap"
-                                                   Text="Posta kutusu (varsa arşivi ayrı dosya olarak) PST'ye aktarılır; hesap ve posta kutusu değişmez. İlerleme durum çubuğunda ve PST penceresinde izlenir."/>
+                                                   Text="Hesabı kapatmadan PST alır: posta kutusu (varsa arşivi ayrı dosya olarak) PST'ye aktarılır; hesap ve posta kutusu değişmez. İlerleme durum çubuğunda ve İşler sayfasında izlenir."/>
 </StackPanel>
 </Border>
                                     </StackPanel>
@@ -1337,14 +1338,14 @@
                 <DockPanel x:Name="pagePst" Visibility="Collapsed">
         <DockPanel DockPanel.Dock="Top" Margin="24,20,24,12">
             <StackPanel VerticalAlignment="Center">
-                <TextBlock Text="PST dışa aktarmaları" Style="{DynamicResource TitleText}"/>
-                <TextBlock Style="{DynamicResource SubtitleText}" Margin="0,2,0,0" TextWrapping="Wrap" Text="Bu araçla başlatılan dışa aktarmalar (devre dışı bırakırken veya Veritabanı ve Taşıma sekmesinden). Silme seçilenlerde, aktarım tamamlanıp PST doğrulanınca posta kutusu otomatik silinir (uygulama açıkken; kapalıysa bir sonraki açılışta)."/>
+                <TextBlock Text="Exchange işleri" Style="{DynamicResource TitleText}"/>
+                <TextBlock Style="{DynamicResource SubtitleText}" Margin="0,2,0,0" TextWrapping="Wrap" Text="Exchange'de süren tüm PST dışa aktarma ve posta kutusu taşıma istekleri. Bu araçla başlatılan PST istekleri bitince de listede kalır. Silme seçilenlerde, aktarım tamamlanıp PST doğrulanınca posta kutusu otomatik silinir (uygulama açıkken; kapalıysa bir sonraki açılışta)."/>
             </StackPanel>
         </DockPanel>
         <Border Style="{DynamicResource DialogFooter}" DockPanel.Dock="Bottom">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                <Button x:Name="btnPeClear" Tag="&#xE711;" Content="İsteği Kaldır" ToolTip="Dışa aktarma isteğini kaldırır (süren aktarım iptal edilir); PST dosyası ve posta kutusu kalır"/>
+                <Button x:Name="btnPeClear" Tag="&#xE711;" Content="İşi İptal Et / Kaldır" ToolTip="Seçili PST veya taşıma isteklerini kaldırır (Ctrl/Shift ile çoklu seçim). Süren iş iptal edilir; posta kutusu ve PST dosyası kalır. Silinmiş posta kutularının takılı işleri de kaldırılabilir."/>
                 <Button x:Name="btnPeRemove" Style="{DynamicResource DangerButton}" Margin="8,0,0,0" Tag="&#xE74D;" Content="Posta Kutusunu Sil" ToolTip="Tamamlanan dışa aktarmadan sonra posta kutusunu elle siler (Disable-Mailbox)"/>
             </StackPanel>
                 <TextBlock x:Name="txtPeSummary" VerticalAlignment="Center" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,12,0"/>
@@ -1353,6 +1354,7 @@
         <DockPanel Margin="24,0,24,16">
             <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12" LastChildFill="False">
                 <Button x:Name="btnPeRefresh" DockPanel.Dock="Right" Tag="&#xE72C;" Content="Yenile"/>
+                <CheckBox x:Name="chkPeFinished" DockPanel.Dock="Left" VerticalAlignment="Center" Content="Bitenleri göster"/>
             </DockPanel>
             <Border Style="{DynamicResource Card}" Padding="0">
                 <DockPanel>
@@ -1369,15 +1371,15 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="1" Text="Kullanıcı" Tag="sort:Alias" Style="{DynamicResource ListHeaderCell}"/>
                             <TextBlock Grid.Column="2" Text="Tür" Tag="sort:TypeText" Style="{DynamicResource ListHeaderCell}"/>
-                            <TextBlock Grid.Column="3" Text="PST dosyası" Tag="sort:FilePath" Style="{DynamicResource ListHeaderCell}"/>
+                            <TextBlock Grid.Column="3" Text="Hedef (PST / veritabanı)" Tag="sort:FilePath" Style="{DynamicResource ListHeaderCell}"/>
                             <TextBlock Grid.Column="4" Text="İlerleme" Tag="sort:Percent" Style="{DynamicResource ListHeaderCell}"/>
                             <TextBlock Grid.Column="5" Text="Aktarılan" Tag="sort:SizeText" Style="{DynamicResource ListHeaderCell}"/>
                             <TextBlock Grid.Column="6" Text="Durum / sonrası" Tag="sort:StatusText" Style="{DynamicResource ListHeaderCell}"/>
                         </Grid>
                     </Border>
                     <Grid>
-                    <TextBlock x:Name="txtPeEmpty" Text="Bu araçla başlatılmış PST dışa aktarma isteği yok." Foreground="{DynamicResource TextMutedBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,40" Visibility="Collapsed"/>
-                    <ListBox x:Name="lstPe" SelectionMode="Single" BorderThickness="0" Background="Transparent" Padding="0,4" HorizontalContentAlignment="Stretch"
+                    <TextBlock x:Name="txtPeEmpty" Text="Exchange'de süren PST dışa aktarma veya taşıma isteği yok." Foreground="{DynamicResource TextMutedBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,40" Visibility="Collapsed"/>
+                    <ListBox x:Name="lstPe" SelectionMode="Extended" BorderThickness="0" Background="Transparent" Padding="0,4" HorizontalContentAlignment="Stretch"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True"
                              >
                         <ListBox.ItemTemplate>
@@ -1399,7 +1401,7 @@
                                         <TextBlock Grid.Column="3" Text="{Binding FilePath}" ToolTip="{Binding FilePath}" Style="{DynamicResource ListCell}"/>
                                         <DockPanel Grid.Column="4" Margin="0,0,14,0" VerticalAlignment="Center">
                                             <TextBlock DockPanel.Dock="Right" Text="{Binding Percent, StringFormat='%{0}'}" FontSize="12" Foreground="{DynamicResource TextMutedBrush}" Margin="8,0,0,0" Width="36"/>
-                                            <ProgressBar x:Name="PeBar" Minimum="0" Maximum="100" Value="{Binding Percent}" Height="4" VerticalAlignment="Center"/>
+                                            <ProgressBar x:Name="PeBar" Minimum="0" Maximum="100" Value="{Binding Percent, Mode=OneWay}" Height="4" VerticalAlignment="Center" Foreground="{DynamicResource SuccessBrush}"/>
                                         </DockPanel>
                                         <TextBlock Grid.Column="5" Text="{Binding SizeText}" Style="{DynamicResource ListCell}" Foreground="{DynamicResource TextMutedBrush}"/>
                                         <StackPanel Grid.Column="6" VerticalAlignment="Center">

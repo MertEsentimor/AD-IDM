@@ -132,6 +132,7 @@ function Get-AuditTaskContext {
         'Set-DeviceOwner' { if ($Arguments.OwnerDn) { 'device.link' } else { 'device.unlink' } }
         'Connect-ExchangeEnvironment' { 'exchange.connect' }
         'Start-MailboxPstExport' { 'mailbox.pst.export' }
+        'Remove-ExchangeJob' { 'mailbox.job.remove' }
         'Complete-MailboxPstExport' { if ($Arguments.Action -eq 'Remove') { 'mailbox.pst.remove_mailbox' } else { 'mailbox.pst.clear_request' } }
         'Disconnect-ExchangeEnvironment' { 'exchange.disconnect' }
         default { $null }

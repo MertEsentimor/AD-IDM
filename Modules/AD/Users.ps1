@@ -392,11 +392,38 @@ function global:Set-UserPhotoData {
         catch { [pscustomobject]@{ Step = 'Exchange posta kutusu fotoğrafı'; Success = $false; Message = $_.Exception.Message } }
     }
 }
+function global:Move-UserToDisabledOu {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+    param([Parameter(Mandatory = $true)][string]$Identity)
+    $server = Get-PdcEmulator
+    $attribute = $Sync.PreviousOuAttribute
+    $prefix = 'ADEUM-PreviousOU='
+    $disabledOu = Get-DisabledUsersOu
+    if ($WhatIfPreference) { Write-WorkerLog -Message "[WhatIf] Move-ADObject -Identity $Identity -TargetPath '$disabledOu'" -Level Warning; return }
+    if (-not $PSCmdlet.ShouldProcess($Identity, "Move-ADObject -> $disabledOu")) { return }
+    $user = Get-ADUser -Identity $Identity -Server $server -Properties $attribute -ErrorAction Stop
+    $parent = Get-ParentDn -DistinguishedName ([string]$user.DistinguishedName)
+    if ([string]::Equals($parent, $disabledOu, [System.StringComparison]::OrdinalIgnoreCase)) { return }
+    $existing = [string]$user.$attribute
+    if ($existing -and -not $existing.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "$attribute özniteliği başka bir değer içeriyor ('$existing'); önceki OU kaydedilemez, kullanıcı taşınmadı."
+    }
+    $stamp = '|By={0}\{1}|At={2}' -f $env:USERDOMAIN, $env:USERNAME, (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [System.Globalization.CultureInfo]::InvariantCulture)
+    try {
+        Set-ADUser -Identity $Identity -Server $server -Replace @{ $attribute = "$prefix$parent$stamp" } -ErrorAction Stop
+        Move-ADObject -Identity $user.ObjectGUID -TargetPath $disabledOu -Server $server -ErrorAction Stop
+    }
+    catch {
+        throw "Hesap devre dışı bırakıldı ancak $disabledOu konumuna taşınamadı: $($_.Exception.Message) (Nesne 'yanlışlıkla silinmeye karşı koru' ile korunuyor olabilir.)"
+    }
+    Write-WorkerLog -Message "Kullanıcı taşındı: $parent -> $disabledOu (önceki OU '$attribute' özniteliğine kaydedildi)." -Level Success
+}
 function global:Set-UserAccountFlag {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory = $true)][string]$Identity,
-        [Parameter(Mandatory = $true)][hashtable]$Flags
+        [Parameter(Mandatory = $true)][hashtable]$Flags,
+        [Parameter()][bool]$DeferDisabledOuMove = $false
     )
     $server = Get-PdcEmulator
     $attribute = $Sync.PreviousOuAttribute
@@ -439,14 +466,8 @@ function global:Set-UserAccountFlag {
             }
             return
         }
-        try {
-            Set-ADUser -Identity $Identity -Server $server -Replace @{ $attribute = "$prefix$parent$stamp" } -ErrorAction Stop
-            Move-ADObject -Identity $user.ObjectGUID -TargetPath $disabledOu -Server $server -ErrorAction Stop
-        }
-        catch {
-            throw "Hesap devre dışı bırakıldı ancak $disabledOu konumuna taşınamadı: $($_.Exception.Message) (Nesne 'yanlışlıkla silinmeye karşı koru' ile korunuyor olabilir.)"
-        }
-        Write-WorkerLog -Message "Kullanıcı taşındı: $parent -> $disabledOu (önceki OU '$attribute' özniteliğine kaydedildi)." -Level Success
+        if ($DeferDisabledOuMove) { Write-WorkerLog -Message "OU taşıma ($disabledOu) diğer işlemler bitince yapılacak." -Level Info; return }
+        Move-UserToDisabledOu -Identity $Identity -Confirm:$false
     }
     else {
         Enable-ADAccount -Identity $Identity -Server $server -ErrorAction Stop
@@ -536,13 +557,16 @@ function global:Invoke-UserUpdate {
     if ($AdReplace.Count -gt 0 -or $AdClear.Count -gt 0) { $steps.Add('AD') }
     if ($GroupAdd.Count -gt 0 -or $GroupRemove.Count -gt 0) { $steps.Add('Groups') }
     if ($AccountFlags.Count -gt 0) { $steps.Add('AccountFlags') }
-    if ($MoveToOu) { $steps.Add('Move') }
     if ($DisableCleanup.RemoveGroups) { $steps.Add('GroupCleanup') }
     if ($DisableCleanup.Pst) { $steps.Add('PstExport') }
     if ($Leave.Count -gt 0) { $steps.Add('Leave') }
     if ($PSBoundParameters.ContainsKey('SmtpAddresses')) { $steps.Add('Addresses') }
     if ($CasChanges.Count -gt 0) { $steps.Add('Cas') }
     if ($PolicyChanges.Count -gt 0) { $steps.Add('Policies') }
+    # OU taşıma en sonda: Exchange dizin önbelleği eski DN'i tutar, taşımadan sonraki Exchange komutları nesneyi bulamaz.
+    if ($MoveToOu) { $steps.Add('Move') }
+    $disabling = $AccountFlags.ContainsKey('Enabled') -and -not [bool]$AccountFlags.Enabled
+    if ($disabling) { $steps.Add('DisabledOuMove') }
     $prefix = if ($WhatIfPreference) { '[WhatIf] ' } else { '' }
     $index = 0
     $disableFailed = $false
@@ -572,7 +596,13 @@ function global:Invoke-UserUpdate {
                 'AccountFlags' {
                     $result.Step = 'Hesap seçenekleri'
                     Set-WorkerProgress -Percent $percent -Status "${prefix}Hesap seçenekleri güncelleniyor..."
-                    Set-UserAccountFlag -Identity $ObjectGuid -Flags $AccountFlags -Confirm:$false
+                    Set-UserAccountFlag -Identity $ObjectGuid -Flags $AccountFlags -DeferDisabledOuMove $disabling -Confirm:$false
+                }
+                'DisabledOuMove' {
+                    $result.Step = 'OU taşıma (devre dışı kullanıcılar)'
+                    if ($disableFailed) { throw 'Hesap devre dışı bırakılamadığı için OU taşınmadı.' }
+                    Set-WorkerProgress -Percent $percent -Status "${prefix}Hesap devre dışı kullanıcılar OU'suna taşınıyor..."
+                    Move-UserToDisabledOu -Identity $ObjectGuid -Confirm:$false
                 }
                 'Move' {
                     $result.Step = 'OU taşıma'

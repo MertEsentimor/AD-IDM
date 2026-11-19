@@ -42,35 +42,116 @@ function global:Start-MailboxPstExport {
 function global:Get-PstExportStatus {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
-    param()
-    $problem = Test-PstExportAvailable
-    if ($problem) { return }
-    $requests = @(Get-MailboxExportRequest -ResultSize Unlimited -ErrorAction Stop | Where-Object { [string]$_.Name -like 'ADEUM-PST*' })
-    foreach ($request in $requests) {
+    param(
+        [Parameter()][bool]$AllJobs = $false,
+        [Parameter()][bool]$IncludeFinished = $false
+    )
+    if ($Sync.ExchangeMode -ne 'OnPremises') { return }
+    $finalStatuses = @('Completed', 'CompletedWithWarning', 'Failed')
+    if (-not (Test-PstExportAvailable)) {
+        # Bu aracın istekleri (ADEUM-PST*) her zaman döner: otomatik posta kutusu silme bitenlere bakar.
+        $requests = @(Get-MailboxExportRequest -ResultSize Unlimited -ErrorAction Stop | Where-Object {
+                [string]$_.Name -like 'ADEUM-PST*' -or ($AllJobs -and ($IncludeFinished -or [string]$_.Status -notin $finalStatuses))
+            })
+        foreach ($request in $requests) {
+            $stats = $null
+            try { $stats = $request | Get-MailboxExportRequestStatistics -ErrorAction Stop } catch { $stats = $null }
+            $status = [string]$request.Status
+            $name = [string]$request.Name
+            $alias = if ($stats -and $stats.SourceAlias) { [string]$stats.SourceAlias } else { ([string]$request.Mailbox -split '/')[-1] }
+            [pscustomobject]@{
+                Key             = "$alias\$name"
+                JobType         = 'Export'
+                RequestId       = [string]$request.Identity
+                RequestGuid     = [string]$request.RequestGuid
+                RequestQueue    = [string]$request.RequestQueue
+                Owned           = $name -like 'ADEUM-PST*'
+                Alias           = $alias
+                Mailbox         = [string]$request.Mailbox
+                Name            = $name
+                Archive         = $name -like '*-ARSIV'
+                RemoveMailbox   = $name -like 'ADEUM-PST-SIL*'
+                FilePath        = if ($stats -and $stats.FilePath) { [string]$stats.FilePath } else { [string]$request.FilePath }
+                Status          = $status
+                StatusDetail    = if ($stats) { [string]$stats.StatusDetail } else { '' }
+                PercentComplete = if ($stats) { [int]$stats.PercentComplete } else { 0 }
+                Transferred     = if ($stats) { Format-ByteSize -Bytes (ConvertTo-ByteCount -Value $stats.BytesTransferred) } else { '-' }
+                Estimated       = if ($stats) { Format-ByteSize -Bytes (ConvertTo-ByteCount -Value $stats.EstimatedTransferSize) } else { '-' }
+                Queued          = if ($stats) { $stats.QueuedTimestamp } else { $null }
+                Completed       = if ($stats) { $stats.CompletionTimestamp } else { $null }
+                FailureMessage  = if ($stats -and $status -like 'Failed*') { [string]$stats.Message } else { '' }
+                IsFinal         = $status -in $finalStatuses
+                CheckedAt       = Get-Date
+            }
+        }
+    }
+    if (-not $AllJobs -or -not (Get-Command -Name 'Get-MoveRequestStatistics' -ErrorAction SilentlyContinue)) { return }
+    $moves = @(Get-MoveRequest -ResultSize Unlimited -ErrorAction Stop | Where-Object { $IncludeFinished -or [string]$_.Status -notin $finalStatuses })
+    foreach ($move in $moves) {
+        $moveId = if ([string]$move.ExchangeGuid) { [string]$move.ExchangeGuid } else { [string]$move.Identity }
         $stats = $null
-        try { $stats = $request | Get-MailboxExportRequestStatistics -ErrorAction Stop } catch { $stats = $null }
-        $status = [string]$request.Status
-        $name = [string]$request.Name
-        $alias = if ($stats -and $stats.SourceAlias) { [string]$stats.SourceAlias } else { ([string]$request.Mailbox -split '/')[-1] }
+        # Get-MailboxMoveStatus ile aynı: istatistik posta kutusu kimliğiyle (Identity) okunur.
+        try { $stats = Get-MoveRequestStatistics -Identity ([string]$move.Identity) -ErrorAction Stop } catch { $stats = $null }
+        $status = [string]$move.Status
+        $target = if ([string]$move.TargetDatabase) { [string]$move.TargetDatabase } else { [string]$move.ArchiveTargetDatabase }
         [pscustomobject]@{
-            Key             = "$alias\$name"
-            Alias           = $alias
-            Mailbox         = [string]$request.Mailbox
-            Name            = $name
-            Archive         = $name -like '*-ARSIV'
-            RemoveMailbox   = $name -like 'ADEUM-PST-SIL*'
-            FilePath        = if ($stats -and $stats.FilePath) { [string]$stats.FilePath } else { [string]$request.FilePath }
+            Key             = "move\$moveId"
+            JobType         = 'Move'
+            RequestId       = [string]$move.Identity
+            RequestGuid     = [string]$move.ExchangeGuid
+            RequestQueue    = if ($stats -and [string]$stats.RequestQueue) { [string]$stats.RequestQueue } else { $target }
+            Owned           = $false
+            Alias           = if ([string]$move.Alias) { [string]$move.Alias } else { [string]$move.DisplayName }
+            Mailbox         = [string]$move.Identity
+            Name            = [string]$move.Name
+            Archive         = $false
+            RemoveMailbox   = $false
+            FilePath        = "$([string]$move.SourceDatabase) -> $target"
             Status          = $status
             StatusDetail    = if ($stats) { [string]$stats.StatusDetail } else { '' }
             PercentComplete = if ($stats) { [int]$stats.PercentComplete } else { 0 }
             Transferred     = if ($stats) { Format-ByteSize -Bytes (ConvertTo-ByteCount -Value $stats.BytesTransferred) } else { '-' }
-            Estimated       = if ($stats) { Format-ByteSize -Bytes (ConvertTo-ByteCount -Value $stats.EstimatedTransferSize) } else { '-' }
+            Estimated       = if ($stats) { Format-ByteSize -Bytes (ConvertTo-ByteCount -Value $stats.TotalMailboxSize) } else { '-' }
             Queued          = if ($stats) { $stats.QueuedTimestamp } else { $null }
             Completed       = if ($stats) { $stats.CompletionTimestamp } else { $null }
             FailureMessage  = if ($stats -and $status -like 'Failed*') { [string]$stats.Message } else { '' }
-            IsFinal         = $status -in @('Completed', 'CompletedWithWarning', 'Failed')
+            IsFinal         = $status -in $finalStatuses
             CheckedAt       = Get-Date
         }
+    }
+}
+function global:Remove-ExchangeJob {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+    [OutputType([pscustomobject])]
+    param(
+        # Her öğe: 'Export|Move' + '|' + istek kimliği + '|' + RequestGuid/ExchangeGuid + '|' + kuyruk veritabanı
+        [Parameter(Mandatory = $true)][string[]]$Job
+    )
+    if ($Sync.ExchangeMode -ne 'OnPremises') { throw 'Exchange On-Premises bağlantısı yok.' }
+    foreach ($entry in $Job) {
+        $jobType, $requestId, $requestGuid, $requestQueue = $entry -split '\|', 4
+        $command = if ($jobType -eq 'Move') { 'Remove-MoveRequest' } else { 'Remove-MailboxExportRequest' }
+        if ($WhatIfPreference) { Write-WorkerLog -Message "[WhatIf] $command $requestId" -Level Warning; continue }
+        if (-not $PSCmdlet.ShouldProcess($requestId, $command)) { continue }
+        $removed = $false
+        $lastError = ''
+        try {
+            & $command -Identity $requestId -Confirm:$false -ErrorAction Stop
+            $removed = $true
+        }
+        catch { $lastError = $_.Exception.Message }
+        # Posta kutusu silinmişse kimlik çözülmez; istek GUID ve kuyruk veritabanıyla kaldırılır.
+        if (-not $removed -and $requestGuid -and $requestQueue) {
+            try {
+                if ($jobType -eq 'Move') { Remove-MoveRequest -MoveRequestQueue $requestQueue -MailboxGuid $requestGuid -Confirm:$false -ErrorAction Stop }
+                else { Remove-MailboxExportRequest -RequestQueue $requestQueue -RequestGuid $requestGuid -Confirm:$false -ErrorAction Stop }
+                $removed = $true
+            }
+            catch { $lastError = $_.Exception.Message }
+        }
+        if ($removed) { Write-WorkerLog -Message "İş kaldırıldı ($command): $requestId" -Level Success }
+        else { Write-WorkerLog -Message "İş kaldırılamadı ($requestId): $lastError" -Level Error }
+        [pscustomobject]@{ RequestId = $requestId; JobType = $jobType; Removed = $removed; Error = $lastError }
     }
 }
 function global:Complete-MailboxPstExport {

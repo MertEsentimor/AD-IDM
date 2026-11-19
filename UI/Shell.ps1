@@ -40,7 +40,7 @@ $script:State = @{
     Deferred = New-Object -TypeName 'System.Collections.Generic.Queue[scriptblock]'; ReplicationReload = $null; GroupList = New-Object -TypeName 'System.Collections.Generic.List[object]'
     SmtpList = New-Object -TypeName 'System.Collections.Generic.List[string]'; SelectTabAfterLoad = $null; EnableAfterLoad = $null; PendingOu = $null
     OriginalCas = $null; OriginalSmtp = @(); OriginalPolicy = $null; CurrentMove = $null; MonitoredMoves = @{}; MailboxDatabases = @(); DbPicker = $null; LastExchangeUser = $null; NewUserDialog = $null; NewUserDraft = $null; NewUserDatabases = @()
-    PstExports = @{}; PstScanned = $false; PstAttempts = @{}; PstActionAlias = $null; DisabledList = @(); DisabledOu = ''; DisabledReplicate = $false
+    PstExports = @{}; ExchangeJobs = @(); PstScanned = $false; PstAttempts = @{}; PstActionAlias = $null; DisabledList = @(); DisabledOu = ''; DisabledReplicate = $false
     LeaveEdit = New-Object -TypeName 'System.Collections.Generic.List[object]'; LeaveNowCandidate = ''; LeaveEditTarget = $null; LeaveList = @(); LeaveTask = $null; LeaveApplyExecute = $false; BulkLeave = $null; Report = $null; Settings = $null; ActiveNav = 'navHome'; Dashboard = $null; ReturningToSettings = $false
     DevicesPage = @{ Ou = @(); Subtree = $true; Items = $null; OwnerDn = '' }
 }
@@ -249,6 +249,7 @@ function Register-ShellEvent {
     }
     Register-ListSort -Root $ui.pagePst -List $ui.lstPe
     $ui.btnPeRefresh.Add_Click({ Invoke-UiAction { Start-PstPoll -Force } })
+    $ui.chkPeFinished.Add_Click({ Invoke-UiAction { Update-PstExportView; Start-PstPoll -Force } })
     $ui.btnPeRemove.Add_Click({ Invoke-UiAction { Remove-SelectedPstMailbox } })
     $ui.btnPeClear.Add_Click({ Invoke-UiAction { Clear-SelectedPstRequest } })
     Register-ListSort -Root $ui.pageDisabled -List $ui.lstDu
