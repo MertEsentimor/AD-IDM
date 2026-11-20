@@ -20,7 +20,7 @@ $global:Sync = [hashtable]::Synchronized(@{
         ExchangeMode = 'OnPremises'; ExchangeServer = 'ex01.test.local'; Pdc = 'dc01.test.local'; DefaultDc = 'dc01.test.local'
     })
 $script:Ui = @{}
-foreach ($relativePath in 'Core/WorkerBootstrap.ps1', 'Modules/Exchange/Mailbox.ps1', 'UI/Handlers/UserProfile.ps1', 'UI/Handlers/Exchange.ps1', 'UI/Handlers/Leave.ps1', 'UI/Shell.ps1') {
+foreach ($relativePath in 'Core/WorkerBootstrap.ps1', 'Modules/Exchange/Mailbox.ps1', 'UI/Handlers/UserProfile.ps1', 'UI/Handlers/Exchange.ps1', 'UI/Handlers/Leave.ps1', 'UI/Handlers/Offboarding.ps1', 'UI/Shell.ps1') {
     . (Join-Path -Path $projectRoot -ChildPath $relativePath)
 }
 $ErrorActionPreference = 'Stop'

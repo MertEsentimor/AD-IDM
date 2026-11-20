@@ -37,6 +37,8 @@
     Önceki OU'nun saklandığı öznitelik. Varsayılan: adminDescription.
 .PARAMETER LeaveAttribute
     Personel izin planının tutulduğu öznitelik. Varsayılan: extensionAttribute1.
+.PARAMETER OffboardAttribute
+    Planlı offboarding tarihinin tutulduğu öznitelik. Varsayılan: extensionAttribute3.
 .PARAMETER LegacyLeaveEndAttribute
     Eski izin sisteminin işe dönüş tarihi özniteliği; yok saymak için none. Varsayılan: extensionAttribute2.
 .PARAMETER AuditLogPath
@@ -88,6 +90,7 @@ param(
     [Parameter()][ValidatePattern('^[A-Za-z][A-Za-z0-9-]*$')][string]$PreviousOuAttribute = 'adminDescription',
     [Parameter()][ValidatePattern('^[A-Za-z][A-Za-z0-9-]*$')][string]$LeaveAttribute = 'extensionAttribute1',
     [Parameter()][ValidatePattern('^[A-Za-z][A-Za-z0-9-]*$')][string]$LegacyLeaveEndAttribute = 'extensionAttribute2',
+    [Parameter()][ValidatePattern('^[A-Za-z][A-Za-z0-9-]*$')][string]$OffboardAttribute = 'extensionAttribute3',
     [Parameter()][string]$AuditLogPath,
     [Parameter()][ValidateSet('KeyValue', 'Json')][string]$AuditLogFormat = 'KeyValue',
     [Parameter()][ValidateRange(1, 2048)][int]$AuditMaxSizeMB = 50,
@@ -124,16 +127,16 @@ $script:AppConfigPath = Join-Path -Path $script:AppRoot -ChildPath 'Configs\app-
 $script:MailConfigPath = if ($MailConfigPath) { $MailConfigPath } else { Join-Path -Path $script:AppRoot -ChildPath 'Configs\mail-config.json' }
 $script:ScriptFullPath = $PSCommandPath
 $script:ScriptFileName = Split-Path -Path $PSCommandPath -Leaf
-$script:LeaveTaskArgs = @(foreach ($name in 'DomainController', 'LeaveAttribute', 'LegacyLeaveEndAttribute', 'PreviousOuAttribute', 'DisabledUsersOu', 'AuditLogPath', 'AuditLogFormat', 'AuditMaxSizeMB', 'MailConfigPath') {
+$script:LeaveTaskArgs = @(foreach ($name in 'DomainController', 'LeaveAttribute', 'LegacyLeaveEndAttribute', 'OffboardAttribute', 'ExchangeServer', 'PreviousOuAttribute', 'DisabledUsersOu', 'AuditLogPath', 'AuditLogFormat', 'AuditMaxSizeMB', 'MailConfigPath') {
         if ($PSBoundParameters.ContainsKey($name)) { '-{0} "{1}"' -f $name, $PSBoundParameters[$name] }
     })
 $script:StartupExchangeMode = $ExchangeMode
 $script:StartupExchangeServer = $ExchangeServer
-$script:WorkerScripts = 'Core\WorkerBootstrap.ps1', 'Core\Notify.ps1', 'Modules\AD\Search.ps1', 'Modules\AD\Users.ps1', 'Modules\AD\Groups.ps1', 'Modules\Leave\LeaveParser.ps1', 'Modules\Exchange\Session.ps1', 'Modules\Exchange\Mailbox.ps1', 'Modules\Exchange\PstExport.ps1', 'Modules\AD\Devices.ps1', 'Modules\AD\DisabledUsers.ps1', 'Modules\AD\Reports.ps1', 'Modules\Leave\LeaveEngine.ps1', 'Modules\Workflows\Provision.ps1'
+$script:WorkerScripts = 'Core\WorkerBootstrap.ps1', 'Core\Notify.ps1', 'Modules\AD\Search.ps1', 'Modules\AD\Users.ps1', 'Modules\AD\Groups.ps1', 'Modules\Leave\LeaveParser.ps1', 'Modules\Exchange\Session.ps1', 'Modules\Exchange\Mailbox.ps1', 'Modules\Exchange\PstExport.ps1', 'Modules\AD\Devices.ps1', 'Modules\AD\DisabledUsers.ps1', 'Modules\AD\Reports.ps1', 'Modules\Leave\LeaveEngine.ps1', 'Modules\Offboard\Offboard.ps1', 'Modules\Workflows\Provision.ps1'
 $script:Ui = @{}
 $script:Window = $null
 
-foreach ($relativePath in 'Core\Elevation.ps1', 'Core\Logging.ps1', 'Core\Audit.ps1', 'Core\Config.ps1', 'Core\Secrets.ps1', 'Core\Notify.ps1', 'Core\Runspace.ps1', 'Modules\Leave\LeaveTask.ps1', 'Modules\AD\Devices.ps1') {
+foreach ($relativePath in 'Core\Elevation.ps1', 'Core\Logging.ps1', 'Core\Audit.ps1', 'Core\Config.ps1', 'Core\Secrets.ps1', 'Core\Notify.ps1', 'Core\Runspace.ps1', 'Modules\Leave\LeaveTask.ps1', 'Modules\AD\Devices.ps1', 'Modules\Offboard\Offboard.ps1') {
     . ([scriptblock]::Create((Read-AppFile -RelativePath $relativePath)))
 }
 $script:Sync.Pdc = if ($DomainController) { $DomainController } else { $null }
@@ -158,6 +161,7 @@ catch {
     Write-Warning "app-config.json okunamadı, otomatik cihaz eşleştirme kapalı: $($_.Exception.Message)"
 }
 $script:Sync.LeaveAttribute = $LeaveAttribute
+$script:Sync.OffboardAttribute = $OffboardAttribute
 $script:Sync.LegacyLeaveEndAttribute = if ($LegacyLeaveEndAttribute -eq 'none') { '' } else { $LegacyLeaveEndAttribute }
 Initialize-Audit -Path $(if ($AuditLogPath) { $AuditLogPath } else { Join-Path -Path $script:AppRoot -ChildPath 'Logs\ADExchangeUserManager-audit.log' }) -Format $AuditLogFormat -MaxSizeMB $AuditMaxSizeMB
 

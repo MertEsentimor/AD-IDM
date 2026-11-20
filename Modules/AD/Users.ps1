@@ -121,7 +121,7 @@ function global:Get-UserProfileData {
         'CannotChangePassword',
         'lastLogonTimestamp', 'msDS-UserPasswordExpiryTimeComputed', 'proxyAddresses', 'whenCreated',
         'AccountExpirationDate', 'CanonicalName', 'thumbnailPhoto', 'lockoutTime', 'badPwdCount',
-        'memberOf', 'primaryGroupID', $Sync.PreviousOuAttribute, $Sync.LeaveAttribute
+        'memberOf', 'primaryGroupID', $Sync.PreviousOuAttribute, $Sync.LeaveAttribute, $Sync.OffboardAttribute
     )
     if ($Sync.LegacyLeaveEndAttribute) { $properties += $Sync.LegacyLeaveEndAttribute }
     try {
@@ -157,9 +157,12 @@ function global:Get-UserProfileData {
         LockoutTime           = $null
         BadPwdCount           = [int]$user.badPwdCount
         Leave                 = $null
+        Offboard              = $null
     }
     try { $ad.DisabledUsersOu = Get-DisabledUsersOu } catch { Write-WorkerLog -Message "DisabledUsers OU belirlenemedi: $($_.Exception.Message)" -Level Warning }
     $ad.Leave = Get-UserLeaveInfo -User $user -Enabled $ad.Enabled -Protected (Test-LeaveProtected -DistinguishedName $ad.DistinguishedName -Marker ([string]$user.($Sync.PreviousOuAttribute)) -DisabledOu ([string]$ad.DisabledUsersOu))
+    $offboardRecord = ConvertFrom-OffboardValue -Value ([string]$user.($Sync.OffboardAttribute))
+    $ad.Offboard = [pscustomobject]@{ Attribute = $Sync.OffboardAttribute; Record = $offboardRecord; State = Get-OffboardState -Record $offboardRecord -Enabled $ad.Enabled }
     Set-WorkerProgress -Percent 10 -Status 'Hesap kilit durumu PDC Emulator üzerinden kontrol ediliyor...'
     try {
         $pdc = Get-PdcEmulator
@@ -549,6 +552,7 @@ function global:Invoke-UserUpdate {
         [Parameter()][AllowEmptyCollection()][string[]]$GroupAdd = @(),
         [Parameter()][AllowEmptyCollection()][string[]]$GroupRemove = @(),
         [Parameter()][hashtable]$Leave = @{},
+        [Parameter()][hashtable]$Offboard = @{},
         [Parameter()][hashtable]$DisableCleanup = @{},
         [Parameter()][string]$MoveToOu
     )
@@ -560,6 +564,7 @@ function global:Invoke-UserUpdate {
     if ($DisableCleanup.RemoveGroups) { $steps.Add('GroupCleanup') }
     if ($DisableCleanup.Pst) { $steps.Add('PstExport') }
     if ($Leave.Count -gt 0) { $steps.Add('Leave') }
+    if ($Offboard.Count -gt 0) { $steps.Add('Offboard') }
     if ($PSBoundParameters.ContainsKey('SmtpAddresses')) { $steps.Add('Addresses') }
     if ($CasChanges.Count -gt 0) { $steps.Add('Cas') }
     if ($PolicyChanges.Count -gt 0) { $steps.Add('Policies') }
@@ -592,6 +597,13 @@ function global:Invoke-UserUpdate {
                     Set-WorkerProgress -Percent $percent -Status "${prefix}İzin planı kaydediliyor..."
                     $account = if ($AccountFlags.ContainsKey('Enabled') -or -not $Leave.Account) { 'None' } else { [string]$Leave.Account }
                     Set-UserLeave -Identity $ObjectGuid -Value ([string]$Leave.Value) -Account $account -ClearLegacy ([bool]$Leave.ClearLegacy) -Confirm:$false
+                }
+                'Offboard' {
+                    $result.Step = 'Offboarding planı'
+                    Set-WorkerProgress -Percent $percent -Status "${prefix}Offboarding planı kaydediliyor..."
+                    $offboardValue = [string]$Offboard.Value
+                    if ($offboardValue) { Set-DirectoryUserAttribute -Identity $ObjectGuid -Replace @{ $Sync.OffboardAttribute = $offboardValue } -Confirm:$false }
+                    else { Set-DirectoryUserAttribute -Identity $ObjectGuid -Clear @($Sync.OffboardAttribute) -Confirm:$false }
                 }
                 'AccountFlags' {
                     $result.Step = 'Hesap seçenekleri'

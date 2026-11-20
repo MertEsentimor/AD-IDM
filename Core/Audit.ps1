@@ -185,7 +185,7 @@ function Write-AuditTaskResult {
     }
     if ($Context.Changes.Count -gt 0) {
         $stepNames = @{
-            AD = 'Active Directory öznitelikleri'; Groups = 'Grup üyelikleri'; AccountFlags = 'Hesap seçenekleri'; Leave = 'İzin planı'
+            AD = 'Active Directory öznitelikleri'; Groups = 'Grup üyelikleri'; AccountFlags = 'Hesap seçenekleri'; Leave = 'İzin planı'; Offboard = 'Offboarding planı'
             GroupCleanup = 'Grup temizliği'; PstExport = 'PST dışa aktarma'
             Addresses = 'E-posta adresleri'; Cas = 'Posta kutusu özellikleri (CAS)'; Policies = 'Posta kutusu politikaları'
         }

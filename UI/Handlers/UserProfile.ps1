@@ -18,6 +18,7 @@
             $script:Ui[$script:AccountFlagMap[$key].Check].IsChecked = [bool]$ad.$key
         }
         Reset-DisableOption
+        Reset-OffboardPlan
         $script:State.PendingOu = $null
         $disabledOu = if ($ad.DisabledUsersOu) { $ad.DisabledUsersOu } else { 'DisabledUsers OU' }
         $script:Ui.txtAccountLocation.Text = if ($ad.Enabled) { "Konum: $($ad.ParentOu)`nDevre dışı bırakılırsa '$disabledOu' OU'suna taşınır; yeniden etkinleştirilince buraya döner." }
@@ -255,6 +256,7 @@ function Get-PendingChange {
     $groupRemove = New-Object -TypeName 'System.Collections.Generic.List[string]'
     $leaveChanged = $false
     $leaveChange = $null
+    $offboardChange = $null
     $disableCleanup = @{}
     $audit = New-Object -TypeName 'System.Collections.Generic.List[object]'
     if ($script:State.CurrentData) {
@@ -298,6 +300,11 @@ function Get-PendingChange {
         if ($flags.ContainsKey('Enabled') -and -not $flags.Enabled) {
             $disableCleanup = Get-DisableCleanup
             if ($disableCleanup.Count -gt 0) { Add-DisableCleanupChange -Cleanup $disableCleanup -Summary $summary -Audit $audit }
+        }
+        $offboardChange = Get-OffboardChange
+        if ($offboardChange.Changed) {
+            foreach ($line in $offboardChange.Summary) { $summary.Add($line) }
+            foreach ($item in $offboardChange.Audit) { $audit.Add($item) }
         }
         $leaveChange = Get-LeaveChange
         if ($leaveChange.Changed) {
@@ -398,12 +405,14 @@ function Get-PendingChange {
         GroupRemove    = $groupRemove.ToArray()
         LeaveChanged   = $leaveChanged
         LeaveChange    = $leaveChange
+        OffboardChanged = [bool]($offboardChange -and $offboardChange.Changed)
+        OffboardChange = $offboardChange
         DisableCleanup = $disableCleanup
         RestoredGroupFile = $restoredGroupFile
         MoveToOu       = $moveToOu
         AuditItems     = $audit.ToArray()
         Summary        = $summary.ToArray()
-        Count          = $changedFields.Count + $cas.Count + $policies.Count + $flags.Count + $groupAdd.Count + $groupRemove.Count + $(if ($addressChanged) { 1 } else { 0 }) + $(if ($leaveChanged) { 1 } else { 0 }) + $(if ($moveToOu) { 1 } else { 0 })
+        Count          = $changedFields.Count + $cas.Count + $policies.Count + $flags.Count + $groupAdd.Count + $groupRemove.Count + $(if ($addressChanged) { 1 } else { 0 }) + $(if ($leaveChanged) { 1 } else { 0 }) + $(if ($offboardChange -and $offboardChange.Changed) { 1 } else { 0 }) + $(if ($moveToOu) { 1 } else { 0 })
     }
 }
 function Select-PendingOu {
@@ -456,6 +465,7 @@ function Test-PendingChange {
     $warnings = New-Object -TypeName 'System.Collections.Generic.List[string]'
     $emailPattern = '^[^@\s]+@[^@\s]+\.[^@\s]+$'
     if ($Changes.DisableCleanup -and $Changes.DisableCleanup.Count -gt 0) { Test-DisableCleanup -Cleanup $Changes.DisableCleanup -Errors $errors -Warnings $warnings }
+    Test-OffboardChange -Changes $Changes -Errors $errors -Warnings $warnings
     if ($Changes.LeaveChanged) {
         $leaveChange = $Changes.LeaveChange
         $leave = $script:State.CurrentData.Ad.Leave
@@ -562,6 +572,10 @@ function Start-UserUpdate {
     if ($changes.MoveToOu) { $request.MoveToOu = [string]$changes.MoveToOu }
     if ($changes.LeaveChanged) {
         $request.Leave = @{ Value = [string]$changes.LeaveChange.Value; Account = [string]$changes.LeaveChange.Account; ClearLegacy = [bool]$changes.LeaveChange.ClearLegacy }
+    }
+    if ($changes.OffboardChanged) {
+        $request.Offboard = @{ Value = [string]$changes.OffboardChange.Value }
+        if ($changes.OffboardChange.Folder -and -not $simulate) { Save-AppSetting -Values @{ PstFolder = [string]$changes.OffboardChange.Folder } }
     }
     if ($changes.DisableCleanup -and $changes.DisableCleanup.Count -gt 0) {
         $request.DisableCleanup = $changes.DisableCleanup
@@ -673,7 +687,9 @@ function Update-ChangeIndicator {
     $leavePending = [bool]$changes.LeaveChanged
     $script:Ui.txtLeaveChanged.Visibility = if ($leavePending) { 'Visible' } else { 'Collapsed' }
     if ($leavePending) { [void]$changedTabs.Add('tabLeave') }
+    if ($changes.OffboardChanged) { [void]$changedTabs.Add('tabAccount') }
     Update-DisableOptionView
+    Update-OffboardPlanView
     foreach ($groupKey in $script:TabGroups.Keys) {
         foreach ($tabName in $script:TabGroups[$groupKey]) { $script:Ui[$tabName].Tag = if ($changedTabs.Contains($tabName)) { 'Changed' } else { $null } }
     }
@@ -709,6 +725,7 @@ function Update-ActionState {
     foreach ($key in $script:AccountFlagMap.Keys) { $script:Ui[$script:AccountFlagMap[$key].Check].IsEnabled = $loaded }
     $script:Ui.btnResetPassword.IsEnabled = $idle
     $script:Ui.btnMoveOu.IsEnabled = $idle
+    $script:Ui.bdOffboardPlan.IsEnabled = $loaded
     $script:Ui.btnUnlock.IsEnabled = $idle -and [bool]$data.Ad.LockedOut
     $script:Ui.btnPhotoChange.IsEnabled = $idle
     $script:Ui.btnPhotoRemove.IsEnabled = $idle -and [bool]$data.Photo.Bytes
