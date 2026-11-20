@@ -435,6 +435,33 @@
                                             </StackPanel>
                                         </DockPanel>
                                     </Border>
+                                    <Border x:Name="bdOffboardPlan" Style="{DynamicResource SettingRow}">
+                                        <DockPanel>
+                                            <TextBlock DockPanel.Dock="Left" Text="&#xE787;" Style="{DynamicResource Glyph}" VerticalAlignment="Top" Margin="0,1,16,0"/>
+                                            <StackPanel>
+                                                <TextBlock Text="Planlı offboarding" FontWeight="SemiBold"/>
+                                                <TextBlock x:Name="txtOffboardInfo" Foreground="{DynamicResource TextMutedBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,10"/>
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="2*"/>
+                                                        <ColumnDefinition Width="12"/>
+                                                        <ColumnDefinition Width="3*"/>
+                                                        <ColumnDefinition Width="12"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0">
+                                                        <TextBlock Text="Offboarding günü (00:00)" Style="{DynamicResource FieldLabel}"/>
+                                                        <DatePicker x:Name="dpOffboardDate" AutomationProperties.Name="Offboarding günü (hesap bu gün 00:00'da kapanır)"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="2">
+                                                        <TextBlock Text="PST klasörü (UNC paylaşımı)" Style="{DynamicResource FieldLabel}"/>
+                                                        <TextBox x:Name="txtOffboardPstFolder" AutomationProperties.Name="PST klasörü (UNC paylaşımı)" Tag="\\dosyasunucu\PST$"/>
+                                                    </StackPanel>
+                                                    <Button x:Name="btnOffboardClear" Grid.Column="4" Tag="&#xE894;" Content="Planı Kaldır" VerticalAlignment="Bottom"/>
+                                                </Grid>
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
                                     <Border Style="{DynamicResource SettingRow}">
                                         <DockPanel>
                                             <TextBlock DockPanel.Dock="Left" Text="&#xE895;" Style="{DynamicResource Glyph}" Margin="0,0,16,0"/>

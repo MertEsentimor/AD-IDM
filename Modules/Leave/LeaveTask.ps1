@@ -41,6 +41,32 @@
                 trigger    = $Trigger
             }))
 }
+function Write-OffboardAuditResult {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][psobject]$Summary,
+        [Parameter()][ValidateSet('schedule', 'manual')][string]$Trigger = 'schedule'
+    )
+    foreach ($item in @($Summary.Results | Where-Object { $_ })) {
+        $fields = [ordered]@{
+            target_user  = [string]$item.SamAccountName
+            target_guid  = [string]$item.ObjectGuid
+            target_dn    = [string]$item.DistinguishedName
+            category     = 'offboard'
+            field        = [string]$script:Sync.OffboardAttribute
+            kind         = [string]$item.Kind
+            old_value    = [string]$item.OldValue
+            new_value    = [string]$item.NewValue
+            offboard_date = [string]$item.Period
+            steps        = (@($item.Steps | ForEach-Object { "$($_.Step)=$(if ($_.Success) { 'ok' } else { 'fail' })" }) -join ', ')
+            dc           = [string]$Summary.Server
+            trigger      = $Trigger
+            message      = [string]$item.Message
+        }
+        $outcome = if ($Summary.Simulated) { 'simulated' } elseif ($item.Success) { 'success' } else { 'failure' }
+        [void](Write-AuditEvent -Action 'offboard.run' -Result $outcome -Fields $fields)
+    }
+}
 function Invoke-LeaveCheck {
     [CmdletBinding()]
     [OutputType([int])]
@@ -71,6 +97,34 @@ function Invoke-LeaveCheck {
         Import-Module -Name ActiveDirectory -ErrorAction Stop -Verbose:$false
         $global:Sync = $script:Sync
         foreach ($relativePath in $script:WorkerScripts) { . ([scriptblock]::Create((Read-AppFile -RelativePath $relativePath))) }
+        $exchangeServer = [string]$script:StartupExchangeServer
+        if (-not $exchangeServer) {
+            try {
+                if (Test-Path -LiteralPath $script:AppConfigPath) {
+                    $appConfig = Get-Content -LiteralPath $script:AppConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if ($appConfig.PSObject.Properties['ExchangeServer']) { $exchangeServer = ([string]$appConfig.ExchangeServer).Trim() }
+                }
+            }
+            catch { & $write 'Warning' "app-config.json okunamadı: $($_.Exception.Message)" }
+        }
+        $exchangeState = @{ Ready = $false; LastTry = [datetime]::MinValue }
+        $connectExchange = {
+            if ($exchangeState.Ready) { return $true }
+            # Başarısız bağlantı en çok 30 dakikada bir yeniden denenir.
+            if (([datetime]::Now - $exchangeState.LastTry).TotalMinutes -lt 30) { return $false }
+            $exchangeState.LastTry = [datetime]::Now
+            if (-not $exchangeServer) {
+                & $write 'Warning' 'Exchange sunucusu tanımlı değil (Ayarlar > İzin > Gece görevi Exchange sunucusu veya -ExchangeServer); PST ve posta kutusu silme adımları atlanır.'
+                return $false
+            }
+            try {
+                $null = Connect-ExchangeEnvironment -Mode OnPremises -Server $exchangeServer
+                $exchangeState.Ready = $true
+            }
+            catch { & $write 'Error' "Exchange bağlantısı kurulamadı ($exchangeServer): $($_.Exception.Message)" }
+            & $drain
+            return $exchangeState.Ready
+        }
         $now = Get-Date
         $wait = $false
         $target = if ($Date) { ([datetime]$Date).Date }
@@ -81,6 +135,27 @@ function Invoke-LeaveCheck {
             $summary = @(Invoke-LeaveEnforcement -Date $Target -WaitForDate:$Wait -TimedOnly:$TimedOnly -Replicate (-not $NoReplicate) -WhatIf:$Preview -Confirm:$false) | Select-Object -Last 1
             & $drain
             Write-LeaveAuditResult -Summary $summary -Trigger schedule
+            $offboardFailed = 0
+            if (-not $TimedOnly) {
+                # İzin planı boşsa Invoke-LeaveEnforcement beklemez; offboarding 00:00'dan önce başlamamalı.
+                if ($Wait -and -not $Preview) { Wait-LeaveMoment -Until $Target }
+                $offboard = $null
+                try {
+                    $offboard = Invoke-OffboardEnforcement -Date $Target -RemovedGroupFolder (Join-Path -Path $script:AppRoot -ChildPath 'Logs\RemovedGroups') -Operator $script:Audit.Operator -ConnectExchange $connectExchange -WhatIf:$Preview -Confirm:$false
+                }
+                catch {
+                    $offboardFailed++
+                    & $write 'Error' "Offboarding kontrolü başarısız: $($_.Exception.Message)"
+                    [void](Write-AuditEvent -Action 'offboard.check' -Result 'failure' -Fields ([ordered]@{ category = 'offboard'; trigger = 'schedule'; message = $_.Exception.Message }))
+                }
+                & $drain
+                if ($offboard) {
+                    Write-OffboardAuditResult -Summary $offboard -Trigger schedule
+                    $offboardFailed += @($offboard.Results | Where-Object { -not $_.Success }).Count
+                    $summary | Add-Member -NotePropertyName Offboard -NotePropertyValue @($offboard.Results) -Force
+                    $summary.Problems = @(@($summary.Problems) + @($offboard.Problems) | Where-Object { $_ })
+                }
+            }
             $mailFailed = $false
             $earlier = @()
             if (-not $Preview -and -not $Nightly) {
@@ -103,7 +178,7 @@ function Invoke-LeaveCheck {
                     [void](Write-AuditEvent -Action 'leave.mail' -Result 'failure' -Fields ([ordered]@{ category = 'leave'; message = $_.Exception.Message }))
                 }
             }
-            $failedCount = @($summary.Results | Where-Object { -not $_.Success }).Count
+            $failedCount = @($summary.Results | Where-Object { -not $_.Success }).Count + $offboardFailed
             $started = if ($summary.StartedAt) { " (uygulama başlangıcı $(([datetime]$summary.StartedAt).ToString('HH:mm:ss.fff')))" } else { '' }
             & $write $(if ($failedCount -gt 0) { 'Warning' } else { 'Success' }) ("{0}: {1} işlem, {2} hata{3}." -f $(if ($TimedOnly) { "Saatli izin ($($Target.ToString('HH:mm'))) uygulandı" } else { 'İzin kontrolü bitti' }), @($summary.Results).Count, $failedCount, $started)
             [pscustomobject]@{ Failed = $failedCount; MailFailed = $mailFailed }
@@ -112,6 +187,24 @@ function Invoke-LeaveCheck {
         $run = @(& $runOnce $target $wait $false $wait) | Select-Object -Last 1
         $failed = [int]$run.Failed
         $mailFailed = [bool]$run.MailFailed
+        $reportedPst = New-Object -TypeName 'System.Collections.Generic.HashSet[string]' -ArgumentList ([System.StringComparer]::OrdinalIgnoreCase)
+        $removeMailboxes = {
+            if (-not (& $connectExchange)) { return }
+            try {
+                foreach ($removal in @(Complete-OffboardMailboxRemoval -Reported $reportedPst -Confirm:$false)) {
+                    if ($removal.Removed) {
+                        & $write 'Success' "$($removal.Alias): $($removal.Message)"
+                        [void](Write-AuditEvent -Action 'mailbox.pst.remove_mailbox' -Result 'success' -Fields ([ordered]@{ category = 'offboard'; target_user = $removal.Alias; trigger = 'schedule' }))
+                    }
+                    elseif ($removal.Message -notlike '*bulunamadı*') {
+                        & $write 'Warning' "$($removal.Alias): $($removal.Message)"
+                        [void](Write-AuditEvent -Action 'mailbox.pst.remove_mailbox' -Result 'failure' -Fields ([ordered]@{ category = 'offboard'; target_user = $removal.Alias; trigger = 'schedule'; message = $removal.Message }))
+                    }
+                }
+            }
+            catch { & $write 'Warning' "PST durumları okunamadı: $($_.Exception.Message)" }
+            & $drain
+        }
         if (-not $Preview -and -not $Date) {
             $cutoff = (Get-Date).Date.AddHours(23).AddMinutes(30)
             & $write 'Info' ("Gün içi saatli izinler {0} saatine kadar izleniyor." -f $cutoff.ToString('dd.MM.yyyy HH:mm'))
@@ -120,6 +213,7 @@ function Invoke-LeaveCheck {
                 try { $next = @(Get-LeaveTimedMoment -After (Get-Date) -Before $cutoff) | Select-Object -First 1 }
                 catch { & $write 'Warning' "Saatli izinler okunamadı: $($_.Exception.Message)" }
                 & $drain
+                & $removeMailboxes
                 $now = Get-Date
                 if ($next -and ([datetime]$next - $now).TotalMinutes -le 12) {
                     & $write 'Info' ("Saatli izin: {0} işlemleri hazırlanıyor." -f ([datetime]$next).ToString('dd.MM.yyyy HH:mm'))
@@ -223,6 +317,11 @@ function ConvertTo-LeaveReportHtml {
     [void]$body.Append('</tr></table></td></tr>')
     [void]$body.Append((& $table 'İzni başlayanlar' '#D9822B' $closed 'İzin dönemi' 'İşe dönüş' 'Kapanış' 'Bu gece izni başlayan kullanıcı yok.'))
     [void]$body.Append((& $table 'İşe dönenler' '#0F7B0F' $opened 'Biten izin' 'Dönüş' 'Açılış' 'Bu gece izinden dönen kullanıcı yok.'))
+    $offboardItems = @(if ($Summary.PSObject.Properties['Offboard']) { $Summary.Offboard | Where-Object { $_ } })
+    if ($offboardItems.Count -gt 0) {
+        $offboardRows = @($offboardItems | ForEach-Object { [pscustomobject]@{ Name = $_.Name; SamAccountName = $_.SamAccountName; Period = $_.Period; ReturnDate = $_.Message; AppliedAt = $_.AppliedAt; Success = $_.Success; Message = $_.Message; ReplicationErrors = '' } })
+        [void]$body.Append((& $table 'Planlı offboarding' '#C42B1C' $offboardRows 'Plan tarihi' 'Sonuç' 'Saat' ''))
+    }
     $earlierItems = @($Earlier | Where-Object { $_ })
     if ($earlierItems.Count -gt 0) {
         $earlierDay = ($day.AddDays(-1)).ToString('dd.MM.yyyy')
@@ -257,7 +356,8 @@ function Send-LeaveReport {
     $results = @($Summary.Results | Where-Object { $_ })
     $closed = @($results | Where-Object { $_.Action -eq 'Disable' }).Count
     $opened = @($results | Where-Object { $_.Action -eq 'Enable' }).Count
-    $failed = @(@($results) + @($Earlier) | Where-Object { $_ -and -not $_.Success }).Count
+    $offboardResults = @(if ($Summary.PSObject.Properties['Offboard']) { $Summary.Offboard })
+    $failed = @(@($results) + @($Earlier) + $offboardResults | Where-Object { $_ -and -not $_.Success }).Count
     $culture = [System.Globalization.CultureInfo]::InvariantCulture
     $subjectTemplate = if ($config.Subject) { [string]$config.Subject } else { 'İzin raporu {{Date}}: {{Closed}} izne çıkan, {{Opened}} işe dönen' }
     $subject = $subjectTemplate.Replace('{{Date}}', ([datetime]$Summary.Date).ToString('dd.MM.yyyy')).Replace('{{Closed}}', [string]$closed).Replace('{{Opened}}', [string]$opened).Replace('{{Failed}}', [string]$failed)
@@ -305,7 +405,8 @@ function Test-LeaveReportDue {
     param([Parameter(Mandatory = $true)][psobject]$Summary, [Parameter()][object[]]$Earlier = @())
     $mail = Get-MailConfiguration
     if (-not $mail.Config -or $mail.Config.Enabled -ne $true) { return $false }
-    $results = @(@($Summary.Results) + @($Earlier) | Where-Object { $_ })
+    $offboardResults = @(if ($Summary.PSObject.Properties['Offboard']) { $Summary.Offboard })
+    $results = @(@($Summary.Results) + @($Earlier) + $offboardResults | Where-Object { $_ })
     $failed = @($results | Where-Object { -not $_.Success }).Count
     switch ([string]$mail.Config.SendWhen) {
         'Changes' { return $results.Count -gt 0 }

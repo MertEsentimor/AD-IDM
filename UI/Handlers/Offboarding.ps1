@@ -552,3 +552,76 @@ function Clear-SelectedPstRequest {
     if (-not (Show-ConfirmDialog -Message $message -Title 'İsteği Kaldır')) { return }
     Start-PstCompletion -Alias $item.Alias -Action Clear
 }
+function Reset-OffboardPlan {
+    [CmdletBinding()]
+    param()
+    $ui = $script:Ui
+    $data = $script:State.CurrentData
+    $record = if ($data -and $data.Ad.Offboard) { $data.Ad.Offboard.Record } else { $null }
+    $ui.dpOffboardDate.SelectedDate = if ($record -and $record.Date -and -not $record.Problem) { [datetime]$record.Date } else { $null }
+    $folder = if ($record -and $record.PstFolder) { [string]$record.PstFolder } else { '' }
+    if (-not $folder) {
+        $setting = Read-AppSetting
+        if ($setting -and $setting.PSObject.Properties['PstFolder']) { $folder = [string]$setting.PstFolder }
+    }
+    $ui.txtOffboardPstFolder.Text = $folder
+    Update-OffboardPlanView
+}
+function Get-OffboardChange {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+    $result = [pscustomobject]@{ Changed = $false; Value = ''; Date = $null; Folder = ''; Summary = @(); Audit = @() }
+    $data = $script:State.CurrentData
+    if (-not $data -or -not $data.Ad.Offboard) { return $result }
+    $offboard = $data.Ad.Offboard
+    $record = $offboard.Record
+    # PST yeniden deneme kaydı gece görevine aittir; arayüzden değiştirilmez.
+    if ($record.PstRetry) { return $result }
+    $ui = $script:Ui
+    $result.Date = if ($ui.dpOffboardDate.SelectedDate) { ([datetime]$ui.dpOffboardDate.SelectedDate).Date } else { $null }
+    $result.Folder = ([string]$ui.txtOffboardPstFolder.Text).Trim().TrimEnd('\')
+    $originalKey = if ($record.Owned -and -not $record.Problem) { '{0:yyyy-MM-dd}|{1}' -f $record.Date, $record.PstFolder } else { '' }
+    $newKey = if ($result.Date) { '{0:yyyy-MM-dd}|{1}' -f $result.Date, $result.Folder } else { '' }
+    $result.Changed = -not [string]::Equals($originalKey, $newKey, [System.StringComparison]::OrdinalIgnoreCase) -or ([bool]$record.Problem -and -not $result.Date)
+    if (-not $result.Changed) { return $result }
+    if ($result.Date) { $result.Value = ConvertTo-OffboardValue -Date $result.Date -PstFolder $result.Folder -By ([string]$script:Audit.Operator) }
+    $text = if ($result.Date) { "$($result.Date.ToString('dd.MM.yyyy')) 00:00'da hesap kapatılacak, gruplardan çıkarılacak, PST alınıp ($($result.Folder)) posta kutusu silinecek ve DisabledUsers OU'suna taşınacak" } else { 'Plan kaldırılacak' }
+    $result.Summary = @("Offboarding  |  $text")
+    $result.Audit = @(@{ Step = 'Offboard'; Action = $(if ($result.Date) { 'offboard.schedule.set' } else { 'offboard.schedule.cancel' }); Category = 'offboard'; Field = [string]$offboard.Attribute; Label = 'Planlı offboarding'; Operation = $(if ($result.Date) { 'set' } else { 'clear' }); Old = [string]$record.Raw; New = $result.Value })
+    return $result
+}
+function Test-OffboardChange {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][psobject]$Changes,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$Errors,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$Warnings
+    )
+    $change = $Changes.OffboardChange
+    if (-not $Changes.OffboardChanged -or -not $change.Date) { return }
+    $data = $script:State.CurrentData
+    if ($change.Date -le (Get-Date).Date) { $Errors.Add("Offboarding günü yarın veya sonrası olmalı. Hesabı hemen kapatmak için 'Hesap etkin' anahtarını kullanın.") }
+    if ($Changes.AccountFlags.ContainsKey('Enabled') -and -not $Changes.AccountFlags.Enabled) { $Errors.Add('Hesap şimdi devre dışı bırakılıyor; offboarding planını kaldırın veya hesabı açık bırakın.') }
+    if ([string]::Equals([string]$data.Ad.SamAccountName, [string]$env:USERNAME, [System.StringComparison]::OrdinalIgnoreCase)) { $Errors.Add('Kendi hesabınız için offboarding planlayamazsınız.') }
+    $hasMailbox = $data.Exchange -and $data.Exchange.HasMailbox
+    if ($hasMailbox -and $change.Folder -notmatch '^\\\\[^\\/:*?"<>|]+\\[^\\/:*?"<>|]+') { $Errors.Add('PST klasörü bir UNC paylaşımı olmalı (ör. \\dosyasunucu\PST$).') }
+    if ($hasMailbox -and $data.Exchange.AddressSource -ne 'Mailbox') { $Warnings.Add('Posta kutusu şirket içi Exchange''te değil; PST alınamaz, hesap yine kapatılır.') }
+    $Warnings.Add("İşlemi gece görevi yapar: görev hesabının AD yetkisi, Exchange'de 'Mailbox Import Export' ve alıcı yönetimi rolü, PST paylaşımında okuma/yazma izni olmalı.")
+}
+function Update-OffboardPlanView {
+    [CmdletBinding()]
+    param()
+    $ui = $script:Ui
+    $data = $script:State.CurrentData
+    $offboard = if ($data) { $data.Ad.Offboard } else { $null }
+    $record = if ($offboard) { $offboard.Record } else { $null }
+    $retry = $record -and $record.PstRetry
+    $ui.bdOffboardPlan.Visibility = if ($data -and ([bool]$data.Ad.Enabled -or $retry)) { 'Visible' } else { 'Collapsed' }
+    $ui.dpOffboardDate.IsEnabled = -not $retry
+    $ui.txtOffboardPstFolder.IsEnabled = -not $retry
+    $ui.btnOffboardClear.IsEnabled = (-not $retry) -and [bool]$ui.dpOffboardDate.SelectedDate
+    $ui.txtOffboardInfo.Text = if ($retry -or ($record -and $record.Problem)) { $offboard.State.Text }
+    elseif ($ui.dpOffboardDate.SelectedDate) { "Seçilen günün 00:00'ında gece görevi hesabı kapatır, Domain Users dışındaki gruplardan çıkarır, PST alır, PST doğrulanınca posta kutusunu siler ve hesabı DisabledUsers OU'suna taşır.$(if ($record -and $record.By) { " Planlayan: $($record.By)" })" }
+    else { 'Ayrılış tarihi belliyse günü seçin; gece görevi o gün 00:00''da offboarding''i kendisi yapar.' }
+}

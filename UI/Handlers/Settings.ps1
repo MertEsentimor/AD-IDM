@@ -20,6 +20,7 @@
         @('Leave', 'Mail', 'To', 'List', 'Alıcılar', 'Noktalı virgülle ayırın.', $null),
         @('Leave', 'Mail', 'Cc', 'List', 'CC', 'Noktalı virgülle ayırın.', $null),
         @('Leave', 'Mail', 'Subject', 'Text', 'Konu', 'Alanlar: {{Date}} {{Closed}} {{Opened}} {{Failed}}', $null),
+        @('Leave', 'App', 'ExchangeServer', 'Text', 'Gece görevi Exchange sunucusu (planlı offboarding)', 'FQDN, ör. exch01.contoso.local. Gece görevi planlı offboarding''de PST almak ve posta kutusunu silmek için bu sunucuya bağlanır. Boşsa PST adımları yeniden denenmek üzere bekletilir.', $null),
         @('Leave', 'Mail', 'SendWhen', 'Choice', 'Ne zaman gönderilsin', 'Always: her gece. Changes: yalnız hesap kapanan / açılan gecelerde. Failures: yalnız hata veya sorunlu kayıt varsa.', ([string[]]@('Always', 'Changes', 'Failures'))),
         @('SmsService', 'Sms', 'Enabled', 'Bool', 'SMS servisi açık', '', $null),
         @('SmsService', 'Sms', 'Provider', 'Text', 'Servis adı', '', $null),

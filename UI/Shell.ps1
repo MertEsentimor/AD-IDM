@@ -244,6 +244,9 @@ function Register-ShellEvent {
     foreach ($name in 'chkDisableGroups', 'chkDisablePst', 'chkPstRemoveMailbox') {
         $ui[$name].Add_Click({ if (-not $script:State.IsPopulating) { Invoke-UiAction { Update-ChangeIndicator } } })
     }
+    $ui.dpOffboardDate.Add_SelectedDateChanged({ if (-not $script:State.IsPopulating) { Invoke-UiAction { Update-ChangeIndicator } } })
+    $ui.txtOffboardPstFolder.Add_TextChanged({ if (-not $script:State.IsPopulating) { Invoke-UiAction { Update-ChangeIndicator } } })
+    $ui.btnOffboardClear.Add_Click({ Invoke-UiAction { $script:Ui.dpOffboardDate.SelectedDate = $null; Update-ChangeIndicator } })
     foreach ($name in 'txtPstFolder', 'txtPstFileName') {
         $ui[$name].Add_TextChanged({ if (-not $script:State.IsPopulating) { Invoke-UiAction { Update-ChangeIndicator } } })
     }
