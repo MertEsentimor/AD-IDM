@@ -157,6 +157,7 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition/>
                             <ColumnDefinition/>
+                            <ColumnDefinition/>
                         </Grid.ColumnDefinitions>
                         <Border Grid.Column="0" Style="{DynamicResource Card}" Padding="0" Margin="0,0,8,0">
                             <DockPanel>
@@ -167,11 +168,24 @@
                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True" ToolTip="Çift tıklayınca kullanıcı açılır"/>
                             </DockPanel>
                         </Border>
-                        <Border Grid.Column="1" Style="{DynamicResource Card}" Padding="0" Margin="8,0,0,0">
+                        <Border Grid.Column="1" Style="{DynamicResource Card}" Padding="0" Margin="8,0,8,0">
                             <DockPanel>
                                 <TextBlock DockPanel.Dock="Top" x:Name="txtHomeExpiringTitle" Text="Parolası 7 gün içinde dolacaklar" Style="{DynamicResource SectionTitle}" Margin="18,14,18,4"/>
                                 <TextBlock x:Name="txtHomeExpiringEmpty" DockPanel.Dock="Top" Text="Yakında parolası dolacak kullanıcı yok." Style="{DynamicResource HintText}" Margin="18,0,18,12" Visibility="Collapsed"/>
                                 <ListBox x:Name="lstHomeExpiring" BorderThickness="0" Background="Transparent" Padding="6,0,6,8" HorizontalContentAlignment="Stretch"
+                                         ItemContainerStyle="{DynamicResource ListItem}" ItemTemplate="{DynamicResource UserRowTemplate}"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True" ToolTip="Çift tıklayınca kullanıcı açılır"/>
+                            </DockPanel>
+                        </Border>
+                        <Border Grid.Column="2" Style="{DynamicResource Card}" Padding="0" Margin="8,0,0,0">
+                            <DockPanel>
+                                <DockPanel DockPanel.Dock="Top" Margin="18,10,12,4">
+                                    <Button x:Name="btnHomeInactiveOu" DockPanel.Dock="Right" VerticalAlignment="Center" Tag="&#xE8B7;" Content="OU Seç" ToolTip="Listenin kapsayacağı OU'lar (alt OU'lar her zaman dahil)"/>
+                                    <TextBlock x:Name="txtHomeInactiveTitle" Text="1 aydan uzun süredir oturum açmayanlar" Style="{DynamicResource SectionTitle}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                </DockPanel>
+                                <TextBlock x:Name="txtHomeInactiveOu" DockPanel.Dock="Top" Text="OU seçilmedi" Style="{DynamicResource HintText}" Margin="18,0,18,4" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock x:Name="txtHomeInactiveEmpty" DockPanel.Dock="Top" Text="Listelemek için OU seçin." Style="{DynamicResource HintText}" Margin="18,0,18,12" TextWrapping="Wrap"/>
+                                <ListBox x:Name="lstHomeInactive" BorderThickness="0" Background="Transparent" Padding="6,0,6,8" HorizontalContentAlignment="Stretch"
                                          ItemContainerStyle="{DynamicResource ListItem}" ItemTemplate="{DynamicResource UserRowTemplate}"
                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True" ToolTip="Çift tıklayınca kullanıcı açılır"/>
                             </DockPanel>

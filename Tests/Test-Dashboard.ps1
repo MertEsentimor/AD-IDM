@@ -37,5 +37,20 @@ Assert-True ($summary.Errors.Count -eq 0) 'Hata yok'
 $script:DisabledFails = $true
 $partial = Get-DashboardSummary
 Assert-True ($null -eq $partial.DisabledCount -and $partial.LockedCount -eq 1 -and $partial.Errors.Count -eq 1) 'Bir kart okunamazsa diğerleri yine gelir'
+$ortak = New-FakeUser 'ortak' @{ lastLogonTimestamp = $now.AddDays(-45).ToFileTime() }
+$script:InactiveByOu = @{
+    'OU=A,DC=x' = @((New-FakeUser 'eski' @{ lastLogonTimestamp = $now.AddDays(-90).ToFileTime() }), $ortak, (New-FakeUser 'hic' @{ lastLogonTimestamp = $null }))
+    'OU=B,OU=A,DC=x' = @($ortak)
+    'OU=Bozuk,DC=x' = 'throw'
+}
+$script:InactiveCalls = @()
+function global:Get-ADUser { param($LDAPFilter, $SearchBase, $SearchScope, $Properties, $Server, $ResultPageSize) $script:InactiveCalls += [pscustomobject]@{ Filter = $LDAPFilter; Scope = $SearchScope }; if ($script:InactiveByOu[$SearchBase] -eq 'throw') { throw 'erişim yok' }; $script:InactiveByOu[$SearchBase] }
+$inactive = Get-InactiveUserList -SearchBase 'OU=A,DC=x', 'OU=B,OU=A,DC=x', 'OU=Bozuk,DC=x'
+Assert-True ($inactive.Count -eq 3) "İç içe OU'larda aynı kullanıcı bir kez sayılır: $($inactive.Users.SamAccountName -join ',')"
+Assert-True (($inactive.Users.SamAccountName -join ',') -eq 'hic,eski,ortak') "Hiç açmayan önce, sonra en eski: $($inactive.Users.SamAccountName -join ',')"
+Assert-True ($inactive.Users[0].DetailText -eq 'Hiç oturum açmadı' -and $inactive.Users[1].DetailText -like '90 gün*') "Detay metni: $($inactive.Users.DetailText -join ' / ')"
+Assert-True (@($script:InactiveCalls | Where-Object { $_.Scope -ne 'Subtree' }).Count -eq 0) 'Alt OU''lar her zaman dahil (Subtree)'
+Assert-True ($script:InactiveCalls[0].Filter -match 'lastLogonTimestamp<=\d+' -and $script:InactiveCalls[0].Filter -match '!\(userAccountControl') 'Filtre: eşik tarihi ve yalnız etkin hesaplar'
+Assert-True ($inactive.Errors.Count -eq 1) 'Okunamayan OU diğerlerini durdurmaz'
 if ($script:FailureCount -gt 0) { Write-Host "$script:FailureCount test başarısız."; exit 1 }
 Write-Host 'Tüm testler geçti.'

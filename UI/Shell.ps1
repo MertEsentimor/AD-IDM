@@ -264,7 +264,8 @@ function Register-ShellEvent {
     $ui.btnDuEnable.Add_Click({ Invoke-UiAction { Enable-SelectedDisabledUser } })
     $ui.btnHomeRefresh.Add_Click({ Invoke-UiAction { Start-DashboardLoad } })
     $ui.btnHomeDisabled.Add_Click({ Invoke-UiAction { $script:Ui.navDisabled.IsChecked = $true } })
-    foreach ($listName in 'lstHomeLocked', 'lstHomeExpiring') {
+    $ui.btnHomeInactiveOu.Add_Click({ Invoke-UiAction { Select-DashboardInactiveOu } })
+    foreach ($listName in 'lstHomeLocked', 'lstHomeExpiring', 'lstHomeInactive') {
         $ui[$listName].Add_MouseDoubleClick({ param($sender, $e) Invoke-UiAction { Open-DashboardUser -List $sender } })
     }
     $ui.btnMoveOu.Add_Click({ Invoke-UiAction { Select-PendingOu } })

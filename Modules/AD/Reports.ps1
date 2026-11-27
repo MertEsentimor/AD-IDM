@@ -155,3 +155,44 @@ function global:Get-DashboardSummary {
         Errors          = $errors.ToArray()
     }
 }
+function global:Get-InactiveUserList {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string[]]$SearchBase,
+        [Parameter()][ValidateRange(1, 5000)][int]$MaxItems = 500
+    )
+    $server = Get-PdcEmulator
+    $now = Get-Date
+    $cutoff = $now.AddMonths(-1)
+    # lastLogonTimestamp DC'ler arası çoğaltılır (~14 gün gecikme); 1 aylık eşik için yeterli, lastLogon gibi her DC'yi sorgulamaz.
+    $cutoffFileTime = $cutoff.ToFileTimeUtc()
+    $createdBefore = $cutoff.ToUniversalTime().ToString('yyyyMMddHHmmss.0Z')
+    $filter = "(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2))(|(lastLogonTimestamp<=$cutoffFileTime)(&(!(lastLogonTimestamp=*))(whenCreated<=$createdBefore))))"
+    $errors = New-Object -TypeName 'System.Collections.Generic.List[string]'
+    $seen = New-Object -TypeName 'System.Collections.Generic.HashSet[string]'
+    $rows = New-Object -TypeName 'System.Collections.Generic.List[object]'
+    $bases = @($SearchBase | Where-Object { $_ } | Select-Object -Unique)
+    for ($i = 0; $i -lt $bases.Count; $i++) {
+        Set-WorkerProgress -Percent ([int](100 * $i / $bases.Count)) -Status ("Uzun süredir oturum açmayanlar okunuyor (OU {0}/{1})..." -f ($i + 1), $bases.Count)
+        try {
+            foreach ($user in @(Get-ADUser -LDAPFilter $filter -SearchBase ([string]$bases[$i]) -SearchScope Subtree -Properties DisplayName, lastLogonTimestamp, whenCreated -Server $server -ResultPageSize 500 -ErrorAction Stop)) {
+                if (-not $seen.Add($user.ObjectGUID.ToString())) { continue }
+                $last = if ([long]$user.lastLogonTimestamp -gt 0) { [datetime]::FromFileTime([long]$user.lastLogonTimestamp) } else { $null }
+                $name = if ($user.DisplayName) { [string]$user.DisplayName } else { [string]$user.Name }
+                $detail = if ($last) { "$([int][math]::Floor(($now - $last).TotalDays)) gün ($($last.ToString('dd.MM.yyyy')))" } else { 'Hiç oturum açmadı' }
+                $rows.Add([pscustomobject]@{ ObjectGuid = $user.ObjectGUID.ToString(); Name = $name; SamAccountName = [string]$user.SamAccountName; At = $last; DetailText = $detail })
+            }
+        }
+        catch { $errors.Add("OU okunamadı ($($bases[$i])): $($_.Exception.Message)") }
+    }
+    # Hiç oturum açmayanlar (At = null) en üstte, ardından en eski oturum.
+    $sorted = @($rows | Sort-Object -Property @{ Expression = { if ($_.At) { $_.At } else { [datetime]::MinValue } } }, Name)
+    Set-WorkerProgress -Percent 100 -Status 'Uzun süredir oturum açmayanlar hazır.'
+    return [pscustomobject]@{
+        At     = $now
+        Count  = $sorted.Count
+        Users  = @($sorted | Select-Object -First $MaxItems)
+        Errors = $errors.ToArray()
+    }
+}
